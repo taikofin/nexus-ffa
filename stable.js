@@ -25,6 +25,167 @@ const player=new THREE.Group();
 scene.add(player);
 player.add(camera);
 
+const WORLD_UP=new THREE.Vector3(0,1,0);
+const WORLD_DOWN=new THREE.Vector3(0,-1,0);
+const gravityState={
+ up:new THREE.Vector3(0,1,0),
+ targetUp:new THREE.Vector3(0,1,0),
+ mode:"ground",
+ building:null,
+ wallNormal:new THREE.Vector3(),
+ wallFace:0,
+ airborneTime:0,
+ invertedUntil:0,
+ invertedLatched:false
+};
+const playerTargetQuat=new THREE.Quaternion();
+const playerCurrentQuat=new THREE.Quaternion();
+
+function setGravityTarget(up,mode,building=null,wallNormal=null){
+ gravityState.targetUp.copy(up).normalize();
+ gravityState.mode=mode;
+ gravityState.building=building;
+ if(wallNormal)gravityState.wallNormal.copy(wallNormal);
+}
+
+function updateGravityOrientation(dt){
+ gravityState.up.lerp(gravityState.targetUp,1-Math.exp(-dt*5.5)).normalize();
+ playerTargetQuat.setFromUnitVectors(WORLD_UP,gravityState.up);
+ player.quaternion.slerp(playerTargetQuat,1-Math.exp(-dt*4.8));
+}
+
+function nearestWallContact(pos){
+ let best=null,bestDist=1.35;
+ for(const b of buildingColliders){
+  if(pos.y<.25||pos.y>b.h+1.2)continue;
+  const hx=b.w*.5,hz=b.d*.5;
+  const insideZ=pos.z>b.z-hz-.65&&pos.z<b.z+hz+.65;
+  const insideX=pos.x>b.x-hx-.65&&pos.x<b.x+hx+.65;
+
+  if(insideZ){
+   const faces=[
+    {coord:b.x-hx,normal:new THREE.Vector3(-1,0,0)},
+    {coord:b.x+hx,normal:new THREE.Vector3(1,0,0)}
+   ];
+   for(const f of faces){
+    const d=Math.abs(pos.x-f.coord);
+    if(d<bestDist){
+     bestDist=d;best={building:b,normal:f.normal,face:f.coord,axis:"x",distance:d};
+    }
+   }
+  }
+  if(insideX){
+   const faces=[
+    {coord:b.z-hz,normal:new THREE.Vector3(0,0,-1)},
+    {coord:b.z+hz,normal:new THREE.Vector3(0,0,1)}
+   ];
+   for(const f of faces){
+    const d=Math.abs(pos.z-f.coord);
+    if(d<bestDist){
+     bestDist=d;best={building:b,normal:f.normal,face:f.coord,axis:"z",distance:d};
+    }
+   }
+  }
+ }
+ return best;
+}
+
+function attachToWall(contact){
+ const speed=Math.max(4.8,driftVelocity.length());
+ setGravityTarget(contact.normal,"wall",contact.building,contact.normal);
+
+ // Preserve any motion along the face, but redirect the "into wall" part upward.
+ const tangent=driftVelocity.clone().projectOnPlane(contact.normal);
+ tangent.y=0;
+ driftVelocity.copy(tangent).addScaledVector(WORLD_UP,speed*.88);
+
+ if(contact.axis==="x")player.position.x=contact.face+contact.normal.x*.48;
+ else player.position.z=contact.face+contact.normal.z*.48;
+
+ gravityState.airborneTime=0;
+ status.innerHTML="<b>WALL GRAVITY</b><br>Surface captured — running up the building.";
+}
+
+function detachFromSurface(){
+ gravityState.mode="air";
+ gravityState.building=null;
+ gravityState.airborneTime=0;
+}
+
+function updateSurfaceGravity(dt){
+ const now=performance.now();
+ const p=camera.getWorldPosition(new THREE.Vector3());
+
+ if(now<gravityState.invertedUntil){
+  setGravityTarget(WORLD_DOWN,"inverted");
+  // Slow fall while upside down: never accelerate into a hard drop.
+  driftVelocity.y=THREE.MathUtils.lerp(driftVelocity.y,-.72,1-Math.exp(-dt*2.2));
+  return;
+ }else if(gravityState.mode==="inverted"){
+  setGravityTarget(WORLD_UP,"air");
+  gravityState.airborneTime=0;
+ }
+
+ if(gravityState.mode==="wall"&&gravityState.building){
+  const b=gravityState.building;
+
+  // Smoothly roll over the lip: wall becomes roof instead of an instant snap.
+  if(p.y>b.h+.15){
+   setGravityTarget(WORLD_UP,"roof",b);
+   player.position.y=Math.max(player.position.y,b.h);
+   driftVelocity.y=0;
+   status.innerHTML="<b>ROOFTOP GRAVITY</b><br>Gravity rolled over the edge.";
+  }else{
+   // Hold a stable distance off the wall.
+   const hx=b.w*.5,hz=b.d*.5,n=gravityState.wallNormal;
+   if(Math.abs(n.x)>.5)player.position.x=b.x+n.x*(hx+.48);
+   else player.position.z=b.z+n.z*(hz+.48);
+
+   // A strong outward blast lets you intentionally leave the wall.
+   if(driftVelocity.dot(n)>2.3)detachFromSurface();
+  }
+  return;
+ }
+
+ if(gravityState.mode==="roof"&&gravityState.building){
+  const b=gravityState.building,hx=b.w*.5,hz=b.d*.5;
+  const overEdge=Math.abs(p.x-b.x)>hx+.65||Math.abs(p.z-b.z)>hz+.65;
+  if(overEdge){
+   detachFromSurface();
+  }else{
+   player.position.y=Math.max(player.position.y,b.h);
+   driftVelocity.y=Math.max(0,driftVelocity.y);
+   return;
+  }
+ }
+
+ if(gravityState.mode==="air"){
+  gravityState.airborneTime+=dt;
+  // Momentum gets a grace window after leaving a wall/roof.
+  if(gravityState.airborneTime>.7)driftVelocity.y-=3.7*dt;
+  setGravityTarget(WORLD_UP,"air");
+
+  if(player.position.y<=0){
+   player.position.y=0;
+   driftVelocity.y=Math.max(0,driftVelocity.y);
+   setGravityTarget(WORLD_UP,"ground");
+  }
+  return;
+ }
+
+ // Ground: catch a wall only if momentum is actually driving into it.
+ const contact=nearestWallContact(p);
+ if(contact){
+  const intoWall=driftVelocity.dot(contact.normal.clone().multiplyScalar(-1));
+  if(intoWall>1.2||driftVelocity.length()>7.2){
+   attachToWall(contact);
+   return;
+  }
+ }
+ player.position.y=Math.max(0,player.position.y);
+ setGravityTarget(WORLD_UP,"ground");
+}
+
 scene.add(new THREE.HemisphereLight(0xeafaff,0x26313a,2.1));
 const sun=new THREE.DirectionalLight(0xffd7a5,2.2);sun.position.set(-20,35,15);scene.add(sun);
 
@@ -44,10 +205,16 @@ function box(x,y,z,sx,sy,sz,mat,parent=scene){
 function cyl(x,y,z,r,h,mat,parent=scene){
  const m=new THREE.Mesh(new THREE.CylinderGeometry(r,r,h,8),mat);m.position.set(x,y,z);parent.add(m);return m;
 }
+const buildingColliders=[];
 box(0,-.25,0,50,.5,140,M.road);
+function addClimbBuilding(x,z,w,h,d,mat){
+ const m=box(x,h/2,z,w,h,d,mat);
+ buildingColliders.push({x,z,w,h,d,mesh:m});
+ return m;
+}
 for(let s of [-1,1])for(let z=-60;z<=60;z+=15){
  const i=Math.round((z+60)/15),h=14+((i*7+(s>0?3:0))%24),x=s*(24+(i%3)*2);
- box(x,h/2,z,16,h,11,(i%2?M.glass:M.concrete));
+ addClimbBuilding(x,z,16,h,11,(i%2?M.glass:M.concrete));
  for(let y=3;y<h-1;y+=4)box(x-s*8.05,y,z,.08,.18,7,i%3?M.cyan:M.pink);
 }
 for(let z=-55;z<60;z+=18){box(-10,.02,z,12,.04,.16,M.cyan);box(8,.02,z,8,.04,.14,M.pink)}
@@ -221,6 +388,10 @@ function fireRepulsor(side,origin,dir){
  setTimeout(()=>{scene.remove(beam);geo.dispose();mat.dispose()},65);
 
  shoot(origin.clone().addScaledVector(dir,.06),dir,34);
+
+ // Iron Man locomotion: recoil pushes the body opposite the palm blast.
+ const thrust=gravityState.mode==="wall"?11.5:8.5;
+ driftVelocity.addScaledVector(dir,-thrust*.115);
 }
 
 const shockwaves=[];
@@ -373,10 +544,43 @@ function updateHandVisualProxy(h,side){
  }
 }
 
+function updateInvertedFallGesture(){
+ const L=hands.left,R=hands.right;
+ if(!L||!R)return;
+ const lOpen=isOpenPalm(L),rOpen=isOpenPalm(R);
+ const ld=palmNormal(L),rd=palmNormal(R);
+ if(!lOpen||!rOpen||!ld||!rd){
+  gravityState.invertedLatched=false;
+  return;
+ }
+
+ const headF=camera.getWorldDirection(new THREE.Vector3());headF.y=0;
+ if(headF.lengthSq()<.001)headF.set(0,0,-1);else headF.normalize();
+ const headR=new THREE.Vector3().crossVectors(headF,WORLD_UP).normalize();
+
+ const leftDown=ld.dot(WORLD_DOWN)>.72;
+ const rightDown=rd.dot(WORLD_DOWN)>.72;
+ const leftSide=Math.abs(ld.dot(headR))>.66&&Math.abs(ld.y)<.52;
+ const rightSide=Math.abs(rd.dot(headR))>.66&&Math.abs(rd.y)<.52;
+
+ const combo=(leftDown&&rightSide)||(rightDown&&leftSide);
+ if(combo&&!gravityState.invertedLatched){
+  gravityState.invertedLatched=true;
+  gravityState.invertedUntil=performance.now()+2800;
+  gravityState.mode="inverted";
+  gravityState.building=null;
+  driftVelocity.y=Math.max(driftVelocity.y,-.45);
+  status.innerHTML="<b>INVERTED DRIFT</b><br>Upside-down slow fall active for 2.8 seconds.";
+ }else if(!combo){
+  gravityState.invertedLatched=false;
+ }
+}
+
 function updateHandInput(dt){
  updateHeadHandInertia(dt);
  updateHandVisualProxy(hands.left,"left");
  updateHandVisualProxy(hands.right,"right");
+ updateInvertedFallGesture();
  const blastPose=updateBlastGesture();
 
  for(const side of ["left","right"]){
@@ -399,9 +603,15 @@ function updateHandInput(dt){
  if(L){
   const w=joint(L,"wrist"),it=joint(L,"index-finger-tip"),rt=joint(L,"ring-finger-tip"),tt=joint(L,"thumb-tip");
   if(w&&it&&rt&&tt&&dist(rt,tt)<.03){
-   const headF=camera.getWorldDirection(new THREE.Vector3());headF.y=0;
-   if(headF.lengthSq()<.001)headF.set(0,0,-1);else headF.normalize();
-   const headR=new THREE.Vector3().crossVectors(headF,new THREE.Vector3(0,1,0)).normalize();
+   let headF,headR;
+   if(gravityState.mode==="wall"){
+    headF=WORLD_UP.clone();
+    headR=new THREE.Vector3().crossVectors(headF,gravityState.wallNormal).normalize();
+   }else{
+    headF=camera.getWorldDirection(new THREE.Vector3()).projectOnPlane(gravityState.up);
+    if(headF.lengthSq()<.001)headF.set(0,0,-1).projectOnPlane(gravityState.up);else headF.normalize();
+    headR=new THREE.Vector3().crossVectors(headF,gravityState.up).normalize();
+   }
    const hd=indexDir(L);
    if(hd){
     hd.y=0;
@@ -424,7 +634,6 @@ function updateHandInput(dt){
  driftVelocity.lerp(driftTarget,1-Math.exp(-accel*dt));
  if(!inputActive)driftVelocity.multiplyScalar(Math.pow(.90,dt*60));
  dashEnergy*=Math.pow(.55,dt);
- player.position.addScaledVector(driftVelocity,dt);
 }
 let triggerLatch=false;
 function updateControllerInput(dt){
@@ -439,7 +648,6 @@ function updateControllerInput(dt){
     const speed=THREE.MathUtils.lerp(5.2,10.5,THREE.MathUtils.smoothstep(lateral,.55,.95));
     driftTarget.copy(d.normalize()).multiplyScalar(speed);
     driftVelocity.lerp(driftTarget,1-Math.exp(-9.5*dt));
-    player.position.addScaledVector(driftVelocity,dt);
    }
   }
  }
@@ -470,15 +678,23 @@ function updateBank(dt,t){
 const clock=new THREE.Clock();
 renderer.setAnimationLoop(()=>{
  const dt=Math.min(.05,clock.getDelta()),t=clock.elapsedTime;
- updateHandInput(dt);updateControllerInput(dt);updateBots(dt,t);updateBank(dt,t);updateShockwaves(dt);renderer.render(scene,camera);
+ updateHandInput(dt);
+ updateControllerInput(dt);
+ player.position.addScaledVector(driftVelocity,dt);
+ updateSurfaceGravity(dt);
+ updateGravityOrientation(dt);
+ updateBots(dt,t);
+ updateBank(dt,t);
+ updateShockwaves(dt);
+ renderer.render(scene,camera);
 });
 
 const button=VRButton.createButton(renderer,{optionalFeatures:["hand-tracking","local-floor","bounded-floor"]});
 button.classList.add("xrbtn");
 document.body.appendChild(button);
 
-renderer.xr.addEventListener("sessionstart",()=>{status.innerHTML="<b>VR ACTIVE</b><br>IRON MODE: closed fists = safe. Open either palm to fire repulsors. Raise both hands upward for PRESSURE BLAST.";});
+renderer.xr.addEventListener("sessionstart",()=>{status.innerHTML="<b>VR ACTIVE</b><br>Open palms fire + propel. Hit a wall to shift gravity and run up it. One palm down + the other sideways = inverted slow-fall.";});
 renderer.xr.addEventListener("sessionend",()=>{status.innerHTML="<b>NEXUS STABLE</b><br>VR ended. Press ENTER VR again.";});
 
 addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
-status.innerHTML="<b>NEXUS IRON MODE READY</b><br>Open palms fire repulsors. Closed hands do nothing. Head-steered drift stays active.";
+status.innerHTML="<b>NEXUS SURFACE-GRAVITY READY</b><br>Repulsor locomotion, wall-running gravity, rooftop rollover, and inverted slow-fall loaded.";
