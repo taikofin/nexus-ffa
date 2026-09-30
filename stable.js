@@ -419,6 +419,18 @@ const jointGeo=new THREE.SphereGeometry(.012,6,4);
 const jointMatL=new THREE.MeshStandardMaterial({color:0xff9edc,emissive:0xff2da8,emissiveIntensity:.8});
 const jointMatR=new THREE.MeshStandardMaterial({color:0xa4fbff,emissive:0x35ddea,emissiveIntensity:.8});
 const handVisuals={left:new Map(),right:new Map()};
+
+const bodyProxy=new THREE.Group();
+const torso=new THREE.Mesh(new THREE.CapsuleGeometry(.25,.62,4,8),M.dark);
+torso.position.y=1.03; torso.scale.set(1.05,1,0.62); bodyProxy.add(torso);
+for(const x of [-.16,.16]){
+ const leg=new THREE.Mesh(new THREE.CapsuleGeometry(.105,.62,4,8),M.dark);
+ leg.position.set(x,.36,.015); bodyProxy.add(leg);
+}
+const chestGlow=new THREE.Mesh(new THREE.BoxGeometry(.16,.035,.025),M.cyan);
+chestGlow.position.set(0,1.22,-.20); bodyProxy.add(chestGlow);
+bodyProxy.position.set(0,0,.18);
+player.add(bodyProxy);
 function ensureHandVisuals(h,side){
  if(!h?.joints)return;
  for(const name in h.joints){
@@ -441,6 +453,30 @@ function indexDir(h){
  const b=joint(h,"index-finger-tip");
  if(!a||!b)return null;
  return wpos(b).sub(wpos(a)).normalize();
+}
+
+function isFingerGun(h){
+ const w=joint(h,"wrist");
+ const it=joint(h,"index-finger-tip");
+ const mt=joint(h,"middle-finger-tip");
+ const rt=joint(h,"ring-finger-tip");
+ const pt=joint(h,"pinky-finger-tip");
+ const tt=joint(h,"thumb-tip");
+ if(!w||!it||!mt||!rt||!pt||!tt)return false;
+ const wp=wpos(w);
+ const indexOut=wpos(it).distanceTo(wp)>.105;
+ const thumbOut=wpos(tt).distanceTo(wp)>.067;
+ const middleIn=wpos(mt).distanceTo(wp)<.103;
+ const ringIn=wpos(rt).distanceTo(wp)<.098;
+ const pinkyIn=wpos(pt).distanceTo(wp)<.093;
+ return indexOut&&thumbOut&&middleIn&&ringIn&&pinkyIn;
+}
+function fingerGunPose(h){
+ if(!isFingerGun(h))return null;
+ const tip=joint(h,"index-finger-tip");
+ const dir=indexDir(h);
+ if(!tip||!dir)return null;
+ return {origin:wpos(tip),dir};
 }
 
 function palmCenter(h){
@@ -658,6 +694,65 @@ const cinematicDriveDir=new THREE.Vector3(0,0,1);
 let cinematicDriveActive=false;
 let dashEnergy=0;
 
+const fingerLatch={left:false,right:false};
+let bothFingerUpLatch=false;
+let fingerJumpUntil=0;
+let fingerJumpCooldownUntil=0;
+let fingerJumpShotAt=0;
+let fingerJumpLean=0;
+const fingerJumpDir=new THREE.Vector3();
+
+function triggerFingerGunJump(leftPose,rightPose){
+ const now=performance.now();
+ if(now<fingerJumpCooldownUntil)return;
+ fingerJumpCooldownUntil=now+1250;
+ fingerJumpUntil=now+920;
+ fingerJumpShotAt=0;
+
+ const headF=camera.getWorldDirection(new THREE.Vector3()).projectOnPlane(WORLD_UP);
+ if(headF.lengthSq()<.001)headF.set(0,0,-1); else headF.normalize();
+ fingerJumpDir.copy(headF).multiplyScalar(-1);
+ driftVelocity.copy(fingerJumpDir).multiplyScalar(14.5);
+ driftVelocity.y=Math.max(driftVelocity.y,5.8);
+ detachFromSurface();
+
+ bodyProxy.position.z=.42;
+ fingerJumpLean=1;
+ status.innerHTML="<b>FINGER-GUN STUNT</b><br>Both hands up — cinematic backward jump.";
+}
+
+function updateFingerGunJump(dt,leftPose,rightPose){
+ const now=performance.now();
+ const active=now<fingerJumpUntil;
+ const targetLean=active?1:0;
+ fingerJumpLean=THREE.MathUtils.lerp(fingerJumpLean,targetLean,1-Math.exp(-dt*7));
+
+ // Keep the avatar slightly forward in view during the stunt without hijacking head-look.
+ bodyProxy.position.z=THREE.MathUtils.lerp(bodyProxy.position.z,active?.48:.18,1-Math.exp(-dt*7));
+ bodyProxy.rotation.x=THREE.MathUtils.lerp(bodyProxy.rotation.x,active?.28:0,1-Math.exp(-dt*6));
+
+ if(!active)return false;
+
+ // Head turn steers the drift while the actual finger-gun aim stays hand-tracked.
+ const headF=camera.getWorldDirection(new THREE.Vector3()).projectOnPlane(WORLD_UP);
+ if(headF.lengthSq()>.001){
+  headF.normalize().multiplyScalar(-1);
+  fingerJumpDir.lerp(headF,1-Math.exp(-dt*2.2)).normalize();
+ }
+ const desired=fingerJumpDir.clone().multiplyScalar(14.5);
+ desired.y=THREE.MathUtils.lerp(driftVelocity.y,2.0,1-Math.exp(-dt*1.7));
+ driftVelocity.x=THREE.MathUtils.lerp(driftVelocity.x,desired.x,1-Math.exp(-dt*3.1));
+ driftVelocity.z=THREE.MathUtils.lerp(driftVelocity.z,desired.z,1-Math.exp(-dt*3.1));
+ driftVelocity.y=desired.y;
+
+ if(now>=fingerJumpShotAt){
+  fingerJumpShotAt=now+105;
+  if(leftPose)shoot(leftPose.origin,leftPose.dir,32);
+  if(rightPose)shoot(rightPose.origin,rightPose.dir,32);
+ }
+ return true;
+}
+
 let lastHeadForward=null;
 let handInertiaSide=0;
 let handInertiaUp=0;
@@ -752,35 +847,35 @@ function updateHandInput(dt){
  updateHeadHandInertia(dt);
  updateHandVisualProxy(hands.left,"left");
  updateHandVisualProxy(hands.right,"right");
- updateInvertedFallGesture();
- const blastPose=updateBlastGesture();
 
- cinematicDrive.set(0,0,0);
- cinematicDriveActive=false;
+ // NEXUS now uses actual finger guns: index + thumb only. No open-palm repulsor movement.
+ repulsors.left.visible=false;
+ repulsors.right.visible=false;
 
+ const poses={left:fingerGunPose(hands.left),right:fingerGunPose(hands.right)};
  for(const side of ["left","right"]){
-  const h=hands[side];
-  if(!h){
-   repulsors[side].visible=false;
-   continue;
+  const pose=poses[side];
+  if(pose&&!fingerLatch[side]){
+   fingerLatch[side]=true;
+   shoot(pose.origin,pose.dir,48);
   }
-
-  const open=isOpenPalm(h);
-  const pose=updateRepulsorVisual(side,h,open);
-  if(open&&pose&&!blastPose){
-   // Open palm = continuous repulsor fire.
-   fireRepulsor(side,pose.center,pose.dir);
-
-   // Your palms only choose direction. They do NOT choose speed.
-   // Opposite the palm blast = Iron Man-style backward propulsion.
-   cinematicDrive.addScaledVector(pose.dir,-1);
-   cinematicDriveActive=true;
-  }
+  if(!pose)fingerLatch[side]=false;
  }
 
- const L=hands.left;
+ const both=!!(poses.left&&poses.right);
+ const bothTiltedUp=!!(both&&poses.left.dir.y>.24&&poses.right.dir.y>.24);
+ if(bothTiltedUp&&!bothFingerUpLatch){
+  bothFingerUpLatch=true;
+  triggerFingerGunJump(poses.left,poses.right);
+ }
+ if(!bothTiltedUp)bothFingerUpLatch=false;
+
+ const stuntActive=updateFingerGunJump(dt,poses.left,poses.right);
+
+ // Left thumb-to-ring pinch keeps the original non-controller drift option.
  driftTarget.set(0,0,0);
- if(L){
+ const L=hands.left;
+ if(!stuntActive&&L){
   const w=joint(L,"wrist"),it=joint(L,"index-finger-tip"),rt=joint(L,"ring-finger-tip"),tt=joint(L,"thumb-tip");
   if(w&&it&&rt&&tt&&dist(rt,tt)<.03){
    let headF,headR;
@@ -809,36 +904,13 @@ function updateHandInput(dt){
   }
  }
 
- if(cinematicDriveActive&&cinematicDrive.lengthSq()>.001){
-  const rawDir=cinematicDrive.normalize();
-
-  // Steering eases like a camera move: palms redirect the flight path,
-  // but they do not jerk the player one frame at a time.
-  if(cinematicDriveDir.lengthSq()<.001)cinematicDriveDir.copy(rawDir);
-  cinematicDriveDir.lerp(rawDir,1-Math.exp(-CINEMATIC_STEER*dt)).normalize();
-
-  const desired=cinematicDriveDir.clone().multiplyScalar(CINEMATIC_BACK_SPEED);
-
-  if(gravityState.mode==="wall"){
-   desired.projectOnPlane(gravityState.wallNormal);
-   if(desired.lengthSq()<.001)desired.copy(WORLD_UP).multiplyScalar(CINEMATIC_BACK_SPEED);
-   else desired.normalize().multiplyScalar(CINEMATIC_BACK_SPEED);
-  }else if(gravityState.mode==="roof"||gravityState.mode==="ground"){
-   desired.y*=.16;
-   if(desired.lengthSq()>.001)desired.normalize().multiplyScalar(CINEMATIC_BACK_SPEED);
-  }
-
-  driftVelocity.lerp(desired,1-Math.exp(-CINEMATIC_ACCEL*dt));
- }else{
+ if(!stuntActive){
   const inputActive=driftTarget.lengthSq()>.001;
   const accel=inputActive?7.2:1.25;
   driftVelocity.lerp(driftTarget,1-Math.exp(-accel*dt));
   if(!inputActive)driftVelocity.multiplyScalar(Math.pow(.985,dt*60));
  }
-
- // Long smooth coast instead of a hard stop.
- const maxMovieSpeed=CINEMATIC_BACK_SPEED*1.10;
- if(driftVelocity.length()>maxMovieSpeed)driftVelocity.setLength(maxMovieSpeed);
+ if(driftVelocity.length()>18.5)driftVelocity.setLength(18.5);
  dashEnergy*=Math.pow(.55,dt);
 }
 let triggerLatch=false;
@@ -900,8 +972,8 @@ const button=VRButton.createButton(renderer,{optionalFeatures:["hand-tracking","
 button.classList.add("xrbtn");
 document.body.appendChild(button);
 
-renderer.xr.addEventListener("sessionstart",()=>{status.innerHTML="<b>VR ACTIVE</b><br>WEB RUSH motion pass active: smooth backward flight, rain/speed streaks, fixed proportions, dense wall-running city.";});
+renderer.xr.addEventListener("sessionstart",()=>{weaponEl.textContent="FINGER GUNS";status.innerHTML="<b>VR ACTIVE</b><br>Finger guns ready. Tilt BOTH pointer+thumb hands upward together for the backward stunt.";});
 renderer.xr.addEventListener("sessionend",()=>{status.innerHTML="<b>NEXUS STABLE</b><br>VR ended. Press ENTER VR again.";});
 
 addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
-status.innerHTML="<b>NEXUS WEB-RUSH FLIGHT READY</b><br>WEB RUSH cinematic motion cues ported into hand-tracked Iron flight.";
+weaponEl.textContent="FINGER GUNS";status.innerHTML="<b>NEXUS FINGER-GUN BUILD READY</b><br>No repulsors: pointer+thumb aim, both hands up triggers the cinematic backward jump.";
