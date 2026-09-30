@@ -14,3 +14,5 @@ button{border:0;border-radius:999px;padding:14px 22px;font-size:17px;font-weight
 
 body.xr #boot{display:none}
 body.xr #stage{position:fixed;inset:0}\n
+.entryButtons{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+button.secondary{background:#1b2832;color:#d8f8ff;border:1px solid rgba(97,245,255,.35);box-shadow:none}
