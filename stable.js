@@ -129,6 +129,27 @@ function fingerPose(h){
  const dir=indexDir(h);
  return tip&&dir?{origin:wpos(tip),dir}:null;
 }
+
+function isGrab(h){
+ const w=joint(h,"wrist");
+ const m=joint(h,"middle-finger-tip");
+ const r=joint(h,"ring-finger-tip");
+ const p=joint(h,"pinky-finger-tip");
+ const i=joint(h,"index-finger-tip");
+ if(!w||!m||!r||!p||!i)return false;
+ const wp=wpos(w);
+ // Curled fingers = gripping an invisible wheel rim.
+ const curled=
+  wpos(m).distanceTo(wp)<.105 &&
+  wpos(r).distanceTo(wp)<.102 &&
+  wpos(p).distanceTo(wp)<.098;
+ // Index can be slightly looser so a natural wheel grip still registers.
+ return curled&&wpos(i).distanceTo(wp)<.125;
+}
+function wristPos(h){
+ const w=joint(h,"wrist");
+ return w?wpos(w):null;
+}
 function updateHandDots(side,h){
  if(!h||!h.joints){
   for(const d of handDots[side].values())d.visible=false;
@@ -149,33 +170,105 @@ function updateHandDots(side,h){
 
 const ray=new THREE.Raycaster();
 let score=0,carry=0;
+
 function rootBot(o){
  while(o&&o.parent&&!bots.includes(o))o=o.parent;
  return bots.includes(o)?o:null;
 }
-function tracer(o,d){
- const g=new THREE.BufferGeometry().setFromPoints([o,o.clone().addScaledVector(d,24)]);
- const line=new THREE.Line(g,new THREE.LineBasicMaterial({color:0xc4fbff,transparent:true,opacity:.9}));
- scene.add(line);
- setTimeout(()=>{scene.remove(line);g.dispose();line.material.dispose()},70);
+function damageBot(b,damage){
+ if(!b||!b.userData.alive)return;
+ b.userData.hp-=damage;
+ if(b.userData.hp<=0){
+  b.userData.alive=false;
+  b.visible=false;
+  b.userData.respawn=2.2;
+  carry++;
+  carryEl.textContent=carry;
+ }
 }
-function shoot(o,d,damage=50){
- ray.set(o,d);
- const hits=ray.intersectObjects(bots.filter(b=>b.userData.alive),true);
- if(hits.length){
-  const b=rootBot(hits[0].object);
-  if(b){
-   b.userData.hp-=damage;
-   if(b.userData.hp<=0){
-    b.userData.alive=false;
-    b.visible=false;
-    b.userData.respawn=2.2;
-    carry++;
-    carryEl.textContent=carry;
-   }
+
+const bulletGeo=new THREE.SphereGeometry(.028,6,4);
+const bulletMat=new THREE.MeshBasicMaterial({color:0xd8ffff});
+const bullets=[];
+const BULLET_SPEED=24; // meters/second: clearly visible travel time in VR.
+
+function spawnBullet(origin,dir,damage=48){
+ const mesh=new THREE.Mesh(bulletGeo,bulletMat);
+ mesh.position.copy(origin);
+ scene.add(mesh);
+ bullets.push({
+  mesh,
+  velocity:dir.clone().normalize().multiplyScalar(BULLET_SPEED),
+  damage,
+  life:1.8
+ });
+}
+
+function updateBullets(dt){
+ for(let i=bullets.length-1;i>=0;i--){
+  const b=bullets[i];
+  const prev=b.mesh.position.clone();
+  const step=b.velocity.clone().multiplyScalar(dt);
+  const dist=step.length();
+  const dir=dist>.0001?step.clone().normalize():new THREE.Vector3(0,0,-1);
+
+  // Segment ray prevents fast bullets tunneling through a target between frames.
+  ray.set(prev,dir);
+  ray.near=0;
+  ray.far=dist+.04;
+  const hits=ray.intersectObjects(bots.filter(x=>x.userData.alive),true);
+
+  if(hits.length){
+   const bot=rootBot(hits[0].object);
+   if(bot)damageBot(bot,b.damage);
+   scene.remove(b.mesh);
+   bullets.splice(i,1);
+   continue;
+  }
+
+  b.mesh.position.add(step);
+  b.life-=dt;
+  if(b.life<=0){
+   scene.remove(b.mesh);
+   bullets.splice(i,1);
   }
  }
- tracer(o,d);
+}
+
+function bestAimTarget(pose){
+ let best=null;
+ let bestMiss=.78; // aim line must pass within ~78cm of target center
+ for(const bot of bots){
+  if(!bot.userData.alive)continue;
+  const center=bot.position.clone().add(new THREE.Vector3(0,1.05,0));
+  const to=center.sub(pose.origin);
+  const forward=to.dot(pose.dir);
+  if(forward<=0||forward>32)continue;
+
+  // Closest distance from target center to the finger-gun aim ray.
+  const closest=pose.origin.clone().addScaledVector(pose.dir,forward);
+  const miss=closest.distanceTo(bot.position.clone().add(new THREE.Vector3(0,1.05,0)));
+  if(miss<bestMiss){
+   bestMiss=miss;
+   best=bot;
+  }
+ }
+ return best;
+}
+
+const fireCooldown={left:0,right:0};
+function updateAimFire(side,pose){
+ if(!pose)return;
+ const target=bestAimTarget(pose);
+ if(!target)return;
+
+ const now=performance.now();
+ if(now<fireCooldown[side])return;
+ fireCooldown[side]=now+190;
+
+ // Still use the player's exact finger direction. Aim assist decides WHEN to fire,
+ // it does not bend the bullet toward the target.
+ spawnBullet(pose.origin.clone(),pose.dir.clone(),48);
 }
 
 const bodyProxy=new THREE.Group();
@@ -230,6 +323,19 @@ const speedLines=new THREE.LineSegments(speedGeo,speedMat);
 scene.add(speedLines);
 
 const velocity=new THREE.Vector3();
+
+const wheelVisual=new THREE.Group();
+const wheelRing=new THREE.Mesh(
+ new THREE.TorusGeometry(.24,.012,6,28),
+ new THREE.MeshBasicMaterial({color:0x75f8ff,transparent:true,opacity:.46,depthWrite:false})
+);
+wheelVisual.add(wheelRing);
+wheelVisual.visible=false;
+scene.add(wheelVisual);
+
+let wheelTurn=0;
+let wheelActive=false;
+
 let stuntActive=false;
 let stuntMode="back";
 let stuntStart=0;
@@ -284,7 +390,7 @@ function updateStunt(dt,poses){
  const arc=Math.sin(Math.PI*p);
  const front=stuntMode==="front";
 
- bodyProxy.position.z=front?.55:.70;
+ bodyProxy.position.z=front ? .55:.70;
  bodyProxy.position.x=front?0:.20*stuntSide;
  poseBody(true,front);
 
@@ -307,9 +413,6 @@ function updateStunt(dt,poses){
  target.y+=front?1.3+1.6*arc:1.8+2.4*arc;
  velocity.lerp(target,1-Math.exp(-dt*3.2));
 
- if(poses.left&&Math.floor(elapsed/130)!==Math.floor((elapsed-dt*1000)/130))shoot(poses.left.origin,poses.left.dir,32);
- if(poses.right&&Math.floor(elapsed/130)!==Math.floor((elapsed-dt*1000)/130))shoot(poses.right.origin,poses.right.dir,32);
-
  if(p>=1){
   stuntActive=false;
   cameraFX.rotation.set(0,0,0);
@@ -323,14 +426,73 @@ function updateInput(dt){
  updateHandDots("right",hands.right);
 
  const poses={left:fingerPose(hands.left),right:fingerPose(hands.right)};
- for(const side of ["left","right"]){
-  if(poses[side]&&!fingerLatch[side]){
-   fingerLatch[side]=true;
-   shoot(poses[side].origin,poses[side].dir,48);
+
+ // Finger gun no longer fires on pose creation.
+ // Hold the pose and it only fires once the aim line is close enough to a live enemy.
+ updateAimFire("left",poses.left);
+ updateAimFire("right",poses.right);
+
+ // Invisible steering wheel: grip with both hands, then roll the line between wrists.
+ const lp=wristPos(hands.left);
+ const rp=wristPos(hands.right);
+ const bothGrab=isGrab(hands.left)&&isGrab(hands.right)&&lp&&rp;
+ wheelActive=false;
+
+ if(bothGrab&&!stuntActive){
+  const span=rp.clone().sub(lp);
+  const separation=span.length();
+
+  if(separation>.20&&separation<.85){
+   wheelActive=true;
+   const center=lp.clone().add(rp).multiplyScalar(.5);
+
+   const headF=camera.getWorldDirection(new THREE.Vector3());
+   headF.y=0;
+   if(headF.lengthSq()<.001)headF.set(0,0,-1); else headF.normalize();
+   const headR=new THREE.Vector3().crossVectors(headF,WORLD_UP).normalize();
+
+   // A level wheel has both hands aligned with head-right.
+   // Raising one hand and lowering the other rolls the wheel and creates steering.
+   const horizontal=span.dot(headR);
+   const vertical=span.dot(WORLD_UP);
+   const raw=Math.atan2(vertical,Math.abs(horizontal)+.001);
+   const signed=horizontal>=0?raw:-raw;
+   const targetTurn=THREE.MathUtils.clamp(signed/.72,-1,1);
+   wheelTurn=THREE.MathUtils.lerp(wheelTurn,targetTurn,1-Math.exp(-dt*10));
+
+   const steerAngle=-wheelTurn*.95;
+   const moveDir=headF.clone().applyAxisAngle(WORLD_UP,steerAngle).normalize();
+   const targetVelocity=moveDir.multiplyScalar(8.2);
+
+   // Wheel gives a smooth car-like arc instead of snapping direction.
+   velocity.x=THREE.MathUtils.lerp(velocity.x,targetVelocity.x,1-Math.exp(-dt*3.8));
+   velocity.z=THREE.MathUtils.lerp(velocity.z,targetVelocity.z,1-Math.exp(-dt*3.8));
+
+   // Tiny lift from raising the whole wheel, but keep it primarily steering.
+   const headPos=camera.getWorldPosition(new THREE.Vector3());
+   const wheelHeight=center.y-headPos.y;
+   velocity.y=THREE.MathUtils.lerp(
+    velocity.y,
+    THREE.MathUtils.clamp((wheelHeight+.18)*2.2,-1.2,1.8),
+    1-Math.exp(-dt*2.6)
+   );
+
+   wheelVisual.visible=true;
+   wheelVisual.position.copy(center);
+   wheelVisual.quaternion.setFromUnitVectors(
+    new THREE.Vector3(1,0,0),
+    span.clone().normalize()
+   );
+   wheelRing.rotation.y=Math.PI/2;
   }
-  if(!poses[side])fingerLatch[side]=false;
  }
 
+ if(!wheelActive){
+  wheelVisual.visible=false;
+  wheelTurn=THREE.MathUtils.lerp(wheelTurn,0,1-Math.exp(-dt*7));
+ }
+
+ // Stunt gestures stay separate from steering-wheel grip.
  const both=!!(poses.left&&poses.right);
  const headF=camera.getWorldDirection(new THREE.Vector3()).normalize();
  const up=both&&poses.left.dir.y>.24&&poses.right.dir.y>.24;
@@ -389,6 +551,7 @@ renderer.setAnimationLoop(()=>{
  velocity.multiplyScalar(Math.pow(.992,dt*60));
  if(player.position.y<0)player.position.y=0;
  updateBots(dt);
+ updateBullets(dt);
  updateSpeedFx();
  renderer.render(scene,camera);
 });
@@ -404,7 +567,7 @@ async function enterVR(){
    optionalFeatures:["hand-tracking"]
   });
   await renderer.xr.setSession(session);
-  status.innerHTML="<b>NEXUS ACTIVE</b><br>Safe boot succeeded. Finger-gun stunts ready.";
+  status.innerHTML="<b>NEXUS ACTIVE</b><br>Two-hand steering wheel + proximity-trigger finger guns ready.";
  }catch(err){
   status.innerHTML="<b>VR START FAILED</b><br>"+String(err&&err.message?err.message:err);
  }
@@ -422,7 +585,7 @@ renderer.xr.addEventListener("sessionstart",()=>{
 renderer.xr.addEventListener("sessionend",()=>{
  button.style.display="";
  cameraFX.rotation.set(0,0,0);
- status.innerHTML="<b>NEXUS v18</b><br>VR ended. Enter again when ready.";
+ status.innerHTML="<b>NEXUS v19</b><br>VR ended. Enter again when ready.";
 });
 
 addEventListener("resize",()=>{
@@ -431,4 +594,4 @@ addEventListener("resize",()=>{
  renderer.setSize(innerWidth,innerHeight);
 });
 
-status.innerHTML="<b>NEXUS v18 SAFE BOOT</b><br>Lightweight Quest-first build. Enter VR to test the clean session path.";
+status.innerHTML="<b>NEXUS v19</b><br>Grab both hands like a steering wheel to steer. Finger guns only fire when aim is close; bullets have travel time.";
