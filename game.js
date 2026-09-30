@@ -311,6 +311,7 @@ const handMats={
 };
 const hands={left:null,right:null};
 const controllers={left:null,right:null};
+const controllerState={rightTrigger:false};
 
 function decorateHand(hand, side) {
   if(!hand || !hand.joints) return;
@@ -334,7 +335,10 @@ function setupXRInput(index) {
   });
   const ctl=renderer.xr.getController(index);rig.add(ctl);
   ctl.addEventListener("connected",e=>{
-    if(e.data && e.data.handedness) controllers[e.data.handedness]=ctl;
+    if(e.data && e.data.handedness){
+      controllers[e.data.handedness]=ctl;
+      ctl.userData.inputSource=e.data;
+    }
   });
 }
 if(renderer.xr && typeof renderer.xr.getHand==="function"){setupXRInput(0);setupXRInput(1)}
@@ -737,6 +741,48 @@ function updateWeaponVisual(rightHand,dt,t){
   const camP=camera.getWorldPosition(new THREE.Vector3());
   if(camP.distanceTo(weaponRoot.position)<.17)weaponRoot.visible=false;
 }
+function updateControllerFallback(dt){
+  if(!renderer.xr.isPresenting)return;
+  const L=controllers.left,R=controllers.right;
+  const camF=camera.getWorldDirection(new THREE.Vector3());camF.y=0;
+  if(camF.lengthSq()<.001)camF.set(0,0,-1); else camF.normalize();
+  const camR=new THREE.Vector3().crossVectors(camF,UP).normalize();
+
+  if(L&&L.userData.inputSource&&L.userData.inputSource.gamepad){
+    const gp=L.userData.inputSource.gamepad;
+    const ax=gp.axes||[];
+    const x=Math.abs(ax[2]||0)>.15?(ax[2]||0):0;
+    const y=Math.abs(ax[3]||0)>.15?(ax[3]||0):0;
+    if(x||y){
+      const d=camR.clone().multiplyScalar(x).addScaledVector(camF,-y);
+      if(d.lengthSq()>.001){
+        d.normalize();
+        rig.position.addScaledVector(d,dt*5.2);
+        motionVisual.lerp(d,.45);
+      }
+    }
+  }
+
+  if(R&&R.userData.inputSource&&R.userData.inputSource.gamepad){
+    const gp=R.userData.inputSource.gamepad;
+    const ax=gp.axes||[];
+    const turn=Math.abs(ax[2]||0)>.2?(ax[2]||0):0;
+    if(turn)rig.rotation.y-=turn*dt*1.65;
+
+    const pressed=!!(gp.buttons&&gp.buttons[0]&&gp.buttons[0].pressed);
+    if(pressed&&!controllerState.rightTrigger){
+      controllerState.rightTrigger=true;
+      const o=R.getWorldPosition(new THREE.Vector3());
+      const d=new THREE.Vector3(0,0,-1).applyQuaternion(R.getWorldQuaternion(new THREE.Quaternion())).normalize();
+      shoot(o.clone().addScaledVector(d,.12),d,weapon==="SNIPER"?112:55,weapon==="SNIPER");
+    }
+    if(!pressed)controllerState.rightTrigger=false;
+
+    if(gp.buttons&&gp.buttons[4]&&gp.buttons[4].pressed)setWeapon("HANDGUN");
+    if(gp.buttons&&gp.buttons[5]&&gp.buttons[5].pressed)setWeapon("SWORD");
+  }
+}
+
 function updateHandsAndControls(dt,t){
   decorateHand(hands.left,"left");decorateHand(hands.right,"right");
   const R=hands.right,L=hands.left,now=performance.now();
@@ -904,6 +950,7 @@ function frame(){
   const now=performance.now(),dt=Math.min(.045,(now-last)/1000),t=now/1000;last=now;
   if(!renderer.xr.isPresenting)desktopMove(dt);
   updateHandsAndControls(dt,t);
+  updateControllerFallback(dt);
   updateBodyPresence(dt,t);
   updateBots(dt,t);
   updateBank(dt,t);
@@ -985,6 +1032,6 @@ renderer.xr.addEventListener("sessionend",()=>{
   if(!enteringVR)resetEntry("VR session ended — press ENTER VR to play again.");
 });
 
-status.textContent="NEXUS v10 loaded — bare-minimum Quest WebXR entry.";
+status.textContent="NEXUS v11 loaded — bare Quest VR entry + controller fallback.";
 addEventListener("resize",resizeFlatStage);
 })();
