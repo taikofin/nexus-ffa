@@ -97,12 +97,20 @@ for(let i=0;i<2;i++){
 const jointGeo=new THREE.SphereGeometry(.012,6,4);
 const jointMatL=new THREE.MeshStandardMaterial({color:0xff9edc,emissive:0xff2da8,emissiveIntensity:.8});
 const jointMatR=new THREE.MeshStandardMaterial({color:0xa4fbff,emissive:0x35ddea,emissiveIntensity:.8});
-function decorateHand(h,side){
+const handVisuals={left:new Map(),right:new Map()};
+function ensureHandVisuals(h,side){
  if(!h?.joints)return;
  for(const name in h.joints){
-  const j=h.joints[name]; if(j.userData.dot)continue;
-  const d=new THREE.Mesh(jointGeo,side==="left"?jointMatL:jointMatR); if(name.includes("tip"))d.scale.setScalar(1.3);j.add(d);j.userData.dot=true;
+  if(handVisuals[side].has(name))continue;
+  const d=new THREE.Mesh(jointGeo,side==="left"?jointMatL:jointMatR);
+  if(name.includes("tip"))d.scale.setScalar(1.3);
+  if(name==="wrist")d.scale.set(2.1,1.2,2.0);
+  scene.add(d);
+  handVisuals[side].set(name,d);
  }
+}
+function hideHandVisuals(side){
+ for(const d of handVisuals[side].values())d.visible=false;
 }
 function joint(h,n){return h?.joints?.[n]||null}
 function wpos(o){return o.getWorldPosition(new THREE.Vector3())}
@@ -125,7 +133,11 @@ scene.add(fingerMuzzles.left,fingerMuzzles.right);
 const fingerLatch={left:false,right:false};
 function pulseFingerMuzzle(side,p,d){
  const m=fingerMuzzles[side];
- m.position.copy(p).addScaledVector(d,.035);
+ const headF=camera.getWorldDirection(new THREE.Vector3());headF.y=0;
+ if(headF.lengthSq()<.001)headF.set(0,0,-1);else headF.normalize();
+ const headR=new THREE.Vector3().crossVectors(headF,new THREE.Vector3(0,1,0)).normalize();
+ const visualOffset=headR.multiplyScalar(handInertiaSide);
+ m.position.copy(p).add(visualOffset).addScaledVector(d,.035);
  m.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,-1),d);
  m.scale.set(.8,.8,1.8);
  m.visible=true;
@@ -136,8 +148,53 @@ const driftVelocity=new THREE.Vector3();
 const driftTarget=new THREE.Vector3();
 let dashEnergy=0;
 
+let lastHeadForward=null;
+let handInertiaSide=0;
+let handInertiaUp=0;
+function updateHeadHandInertia(dt){
+ const f=camera.getWorldDirection(new THREE.Vector3()); f.y=0;
+ if(f.lengthSq()<.001)return;
+ f.normalize();
+
+ if(!lastHeadForward){
+  lastHeadForward=f.clone();
+  return;
+ }
+
+ const crossY=new THREE.Vector3().crossVectors(lastHeadForward,f).y;
+ const dot=THREE.MathUtils.clamp(lastHeadForward.dot(f),-1,1);
+ const yawDelta=Math.atan2(crossY,dot);
+ const yawRate=yawDelta/Math.max(.008,dt);
+
+ // Head turns one way, both hands visually lag the opposite way.
+ const targetSide=THREE.MathUtils.clamp(-yawRate*.055,-.18,.18);
+ handInertiaSide=THREE.MathUtils.lerp(handInertiaSide,targetSide,1-Math.exp(-dt*11));
+ handInertiaSide*=Math.pow(.22,dt);
+
+ lastHeadForward.copy(f);
+}
+
+function updateHandVisualProxy(h,side){
+ if(!h?.joints){hideHandVisuals(side);return}
+ ensureHandVisuals(h,side);
+
+ const headF=camera.getWorldDirection(new THREE.Vector3()); headF.y=0;
+ if(headF.lengthSq()<.001)headF.set(0,0,-1); else headF.normalize();
+ const headR=new THREE.Vector3().crossVectors(headF,new THREE.Vector3(0,1,0)).normalize();
+ const offset=headR.multiplyScalar(handInertiaSide).add(new THREE.Vector3(0,handInertiaUp,0));
+
+ for(const name in h.joints){
+  const j=h.joints[name],v=handVisuals[side].get(name);
+  if(!v||!j)continue;
+  v.visible=true;
+  v.position.copy(wpos(j)).add(offset);
+ }
+}
+
 function updateHandInput(dt){
- decorateHand(hands.left,"left");decorateHand(hands.right,"right");
+ updateHeadHandInertia(dt);
+ updateHandVisualProxy(hands.left,"left");
+ updateHandVisualProxy(hands.right,"right");
 
  for(const side of ["left","right"]){
   const h=hands[side];
@@ -238,4 +295,4 @@ renderer.xr.addEventListener("sessionstart",()=>{status.innerHTML="<b>VR ACTIVE<
 renderer.xr.addEventListener("sessionend",()=>{status.innerHTML="<b>NEXUS STABLE</b><br>VR ended. Press ENTER VR again.";});
 
 addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
-status.innerHTML="<b>NEXUS DRIFT READY</b><br>Head-steered drifting + dual finger guns loaded.";
+status.innerHTML="<b>NEXUS DRIFT READY</b><br>Dual finger guns + opposite-direction head inertia on both hands.";
