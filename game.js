@@ -3,6 +3,7 @@
 
 const status = document.getElementById("status");
 const canvas = document.getElementById("c");
+const stage = document.getElementById("stage");
 const msgEl = document.getElementById("msg");
 const timerEl = document.getElementById("timer");
 const carryEl = document.getElementById("carry");
@@ -33,7 +34,6 @@ const renderer = new THREE.WebGLRenderer({
   alpha: false
 });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.2));
-renderer.setSize(innerWidth, innerHeight);
 renderer.xr.enabled = true;
 renderer.outputEncoding = THREE.sRGBEncoding;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -41,7 +41,17 @@ renderer.toneMappingExposure = 1.12;
 
 const rig = new THREE.Group();
 scene.add(rig);
-const camera = new THREE.PerspectiveCamera(74, innerWidth / innerHeight, 0.045, 260);
+const camera = new THREE.PerspectiveCamera(74, 16/9, 0.045, 260);
+
+function resizeFlatStage(){
+  if(renderer.xr.isPresenting)return;
+  const w=Math.max(1,stage.clientWidth||innerWidth);
+  const h=Math.max(1,stage.clientHeight||innerHeight);
+  camera.aspect=w/h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w,h,false);
+}
+resizeFlatStage();
 camera.position.set(0, 1.65, 8);
 rig.add(camera);
 
@@ -738,8 +748,6 @@ async function enterVR(){
 }
 document.getElementById("enter").addEventListener("click",enterVR);
 
-status.textContent="NEXUS v4 loaded — magnetic handgun aim + camera nudge active.";
-addEventListener("resize",()=>{
-  camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);
-});
+status.textContent="NEXUS v5 loaded — 16:9 cinematic frame + magnetic aim.";
+addEventListener("resize",resizeFlatStage);
 })();
