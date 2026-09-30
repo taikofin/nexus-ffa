@@ -916,20 +916,81 @@ function frame(){
 }
 renderer.setAnimationLoop(frame);
 
-async function enterVR(){
-  if(!navigator.xr){status.textContent="WebXR is unavailable in this browser.";return}
-  try{
-    const ok=await navigator.xr.isSessionSupported("immersive-vr");
-    if(!ok)throw new Error("Immersive VR not available");
-    const session=await navigator.xr.requestSession("immersive-vr",{requiredFeatures:["local-floor"],optionalFeatures:["hand-tracking"]});
-    await renderer.xr.setSession(session);
-    document.body.classList.add("xr");
-    status.textContent="VR ACTIVE — show your hands to Quest.";
-    session.addEventListener("end",()=>document.body.classList.remove("xr"));
-  }catch(e){status.textContent="VR start failed: "+e.message}
-}
-document.getElementById("enter").addEventListener("click",enterVR);
+const enterButton=document.getElementById("enter");
+let enteringVR=false;
 
-status.textContent="NEXUS v7 loaded — speed-reactive weighted arms + physical weapon inertia.";
+function setFlatEntryVisible(show,message){
+  document.body.classList.toggle("xr",!show);
+  if(show){
+    enterButton.disabled=false;
+    enterButton.textContent="ENTER VR";
+    if(message)status.textContent=message;
+  }
+}
+
+renderer.xr.addEventListener("sessionstart",()=>{
+  enteringVR=false;
+  document.body.classList.add("xr");
+  status.textContent="VR ACTIVE — show your hands to Quest.";
+});
+renderer.xr.addEventListener("sessionend",()=>{
+  enteringVR=false;
+  document.body.classList.remove("xr");
+  setFlatEntryVisible(true,"VR session ended — press ENTER VR to jump back in.");
+  resizeFlatStage();
+});
+
+async function enterVR(){
+  if(enteringVR)return;
+  if(!navigator.xr){
+    setFlatEntryVisible(true,"WebXR is unavailable in this browser. Open this page in Meta Quest Browser.");
+    return;
+  }
+  enteringVR=true;
+  enterButton.disabled=true;
+  enterButton.textContent="ENTERING…";
+  status.textContent="Requesting immersive Quest session…";
+  try{
+    // Request the immersive session directly from the button press so Quest keeps user activation.
+    const session=await navigator.xr.requestSession("immersive-vr",{
+      requiredFeatures:["local-floor"],
+      optionalFeatures:["hand-tracking","bounded-floor"]
+    });
+
+    let ended=false;
+    session.addEventListener("end",()=>{
+      ended=true;
+      enteringVR=false;
+      document.body.classList.remove("xr");
+      setFlatEntryVisible(true,"Quest left immersive mode — press ENTER VR to retry.");
+    },{once:true});
+
+    await renderer.xr.setSession(session);
+
+    // Do not hide the entry UI unless the renderer is genuinely presenting.
+    await new Promise(resolve=>setTimeout(resolve,180));
+    if(ended||!renderer.xr.isPresenting){
+      try{if(!ended)await session.end()}catch(_){}
+      throw new Error("Quest created the session but did not enter immersive presentation");
+    }
+
+    document.body.classList.add("xr");
+    enteringVR=false;
+  }catch(e){
+    enteringVR=false;
+    document.body.classList.remove("xr");
+    setFlatEntryVisible(true,"VR start failed: "+(e&&e.message?e.message:e));
+  }
+}
+enterButton.addEventListener("click",enterVR);
+
+// Safety net: never leave the player trapped in flat mode with the button hidden.
+setInterval(()=>{
+  if(!renderer.xr.isPresenting&&document.body.classList.contains("xr")&&!enteringVR){
+    setFlatEntryVisible(true,"Not in immersive VR — press ENTER VR.");
+  }
+},750);
+
+status.textContent="NEXUS v8 loaded — Quest VR entry recovery active.";
 addEventListener("resize",resizeFlatStage);
 })();
