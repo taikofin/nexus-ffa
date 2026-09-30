@@ -91,7 +91,7 @@ function nearestWallContact(pos){
 }
 
 function attachToWall(contact){
- const speed=Math.max(4.8,driftVelocity.length());
+ const speed=Math.max(10.0,driftVelocity.length());
  setGravityTarget(contact.normal,"wall",contact.building,contact.normal);
 
  // Preserve any motion along the face, but redirect the "into wall" part upward.
@@ -399,9 +399,8 @@ function fireRepulsor(side,origin,dir){
 
  shoot(origin.clone().addScaledVector(dir,.06),dir,34);
 
- // Iron Man locomotion: recoil pushes the body opposite the palm blast.
- const thrust=gravityState.mode==="wall"?11.5:8.5;
- driftVelocity.addScaledVector(dir,-thrust*.115);
+ // Movement is handled continuously in updateHandInput so speed is fixed/cinematic,
+ // not dependent on hand size, arm reach, proportions, or fire rate.
 }
 
 const shockwaves=[];
@@ -510,6 +509,10 @@ function updateBlastGesture(){
 
 const driftVelocity=new THREE.Vector3();
 const driftTarget=new THREE.Vector3();
+const cinematicDrive=new THREE.Vector3();
+const CINEMATIC_BACK_SPEED=18.0;
+const CINEMATIC_ACCEL=7.5;
+let cinematicDriveActive=false;
 let dashEnergy=0;
 
 let lastHeadForward=null;
@@ -594,6 +597,9 @@ function updateHandInput(dt){
  updateInvertedFallGesture();
  const blastPose=updateBlastGesture();
 
+ cinematicDrive.set(0,0,0);
+ cinematicDriveActive=false;
+
  for(const side of ["left","right"]){
   const h=hands[side];
   if(!h){
@@ -604,8 +610,13 @@ function updateHandInput(dt){
   const open=isOpenPalm(h);
   const pose=updateRepulsorVisual(side,h,open);
   if(open&&pose&&!blastPose){
-   // Open palm = continuous repulsor fire. Closed hand = no shot.
+   // Open palm = continuous repulsor fire.
    fireRepulsor(side,pose.center,pose.dir);
+
+   // Your palms only choose direction. They do NOT choose speed.
+   // Opposite the palm blast = Iron Man-style backward propulsion.
+   cinematicDrive.addScaledVector(pose.dir,-1);
+   cinematicDriveActive=true;
   }
  }
 
@@ -640,10 +651,31 @@ function updateHandInput(dt){
   }
  }
 
- const inputActive=driftTarget.lengthSq()>.001;
- const accel=inputActive?9.5:2.4;
- driftVelocity.lerp(driftTarget,1-Math.exp(-accel*dt));
- if(!inputActive)driftVelocity.multiplyScalar(Math.pow(.90,dt*60));
+ if(cinematicDriveActive&&cinematicDrive.lengthSq()>.001){
+  cinematicDrive.normalize().multiplyScalar(CINEMATIC_BACK_SPEED);
+
+  // On a wall/roof, keep the movie-speed movement tangent to the active surface.
+  if(gravityState.mode==="wall"){
+   cinematicDrive.projectOnPlane(gravityState.wallNormal);
+   if(cinematicDrive.lengthSq()<.001)cinematicDrive.copy(WORLD_UP).multiplyScalar(CINEMATIC_BACK_SPEED);
+   else cinematicDrive.normalize().multiplyScalar(CINEMATIC_BACK_SPEED);
+  }else if(gravityState.mode==="roof"||gravityState.mode==="ground"){
+   // Ground/roof stays mostly horizontal unless the player is intentionally airborne.
+   cinematicDrive.y*=.22;
+   if(cinematicDrive.lengthSq()>.001)cinematicDrive.normalize().multiplyScalar(CINEMATIC_BACK_SPEED);
+  }
+
+  driftVelocity.lerp(cinematicDrive,1-Math.exp(-CINEMATIC_ACCEL*dt));
+ }else{
+  const inputActive=driftTarget.lengthSq()>.001;
+  const accel=inputActive?9.5:2.4;
+  driftVelocity.lerp(driftTarget,1-Math.exp(-accel*dt));
+  if(!inputActive)driftVelocity.multiplyScalar(Math.pow(.94,dt*60));
+ }
+
+ // Preserve a movie-like coast instead of dropping speed instantly.
+ const maxMovieSpeed=CINEMATIC_BACK_SPEED*1.18;
+ if(driftVelocity.length()>maxMovieSpeed)driftVelocity.setLength(maxMovieSpeed);
  dashEnergy*=Math.pow(.55,dt);
 }
 let triggerLatch=false;
@@ -704,8 +736,8 @@ const button=VRButton.createButton(renderer,{optionalFeatures:["hand-tracking","
 button.classList.add("xrbtn");
 document.body.appendChild(button);
 
-renderer.xr.addEventListener("sessionstart",()=>{status.innerHTML="<b>VR ACTIVE</b><br>Open palms fire + propel. Hit a wall to shift gravity and run up it. One palm down + the other sideways = inverted slow-fall.";});
+renderer.xr.addEventListener("sessionstart",()=>{status.innerHTML="<b>VR ACTIVE</b><br>Open palms = fixed movie-speed backward propulsion. Hand size/reach does not affect speed. Walls still capture gravity.";});
 renderer.xr.addEventListener("sessionend",()=>{status.innerHTML="<b>NEXUS STABLE</b><br>VR ended. Press ENTER VR again.";});
 
 addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
-status.innerHTML="<b>NEXUS SURFACE-GRAVITY READY</b><br>Repulsor locomotion, wall-running gravity, rooftop rollover, and inverted slow-fall loaded.";
+status.innerHTML="<b>NEXUS CINEMATIC DRIVE READY</b><br>Fixed-speed repulsor movement: palms choose direction, not speed. Fast backward movie drift enabled.";
