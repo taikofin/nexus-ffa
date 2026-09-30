@@ -34,6 +34,8 @@ button{border:0;border-radius:999px;padding:14px 22px;font-size:17px;font-weight
 <script>
 (function(){
 const status=document.getElementById("status"),canvas=document.getElementById("c");
+window.addEventListener("error",e=>{status.textContent="GAME ERROR: "+(e.message||"Unknown error")+" @ line "+(e.lineno||"?");status.style.color="#ff7b9f";});
+window.addEventListener("unhandledrejection",e=>{status.textContent="GAME ERROR: "+((e.reason&&e.reason.message)||e.reason||"Promise failed");status.style.color="#ff7b9f";});
 if(!window.THREE){status.textContent="Three.js could not load. Make sure the Quest is online.";return}
 const scene=new THREE.Scene();scene.background=new THREE.Color(0x95c9de);scene.fog=new THREE.Fog(0x95c9de,50,175);
 const renderer=new THREE.WebGLRenderer({canvas:canvas,antialias:false,powerPreference:"high-performance"});
@@ -58,7 +60,7 @@ for(let i=0;i<34;i++){let a=i*2.39,r=54+(i%5)*11,h=12+(i*17)%40;box(Math.cos(a)*
 const bank=new THREE.Group();bank.add(new THREE.Mesh(new THREE.CylinderGeometry(1.1,1.1,2.7,12),M.cyan));
 let ring=new THREE.Mesh(new THREE.TorusGeometry(1.9,.1,8,22),M.pink);ring.rotation.x=Math.PI/2;bank.add(ring);scene.add(bank);
 
-const bots=[];function spawn(i){let g=new THREE.Group(),b=new THREE.Mesh(new THREE.CapsuleGeometry(.42,1.05,4,8),M.enemy);b.position.y=1.15;g.add(b);
+const bots=[];function spawn(i){let g=new THREE.Group(),b=new THREE.Mesh(new THREE.CylinderGeometry(.42,.42,1.8,8),M.enemy);b.position.y=1.15;g.add(b);
 let r=new THREE.Mesh(new THREE.TorusGeometry(.5,.05,6,16),M.pink);r.position.y=1.55;r.rotation.x=Math.PI/2;g.add(r);
 g.position.set((i%2?1:-1)*(5+(i*3)%15),0,-29+i*8);g.userData={hp:100,alive:true,respawn:0,phase:i};scene.add(g);bots.push(g)}
 for(let i=0;i<7;i++)spawn(i);
@@ -80,6 +82,7 @@ let hands={left:null,right:null},gesture="HANDGUN",candidate="",candidateAt=0,fi
 function joint(hand,n){return hand&&hand.joints?hand.joints[n]:null}
 function dist(a,b){return a&&b?a.position.distanceTo(b.position):99}
 function setupXRInputs(){
+ if(typeof renderer.xr.getHand!=="function"){status.textContent="3D ready. This Three.js build has no hand API; VR can still start.";return;}
  const h0=renderer.xr.getHand(0),h1=renderer.xr.getHand(1);rig.add(h0);rig.add(h1);
  function bind(h){h.addEventListener("connected",e=>{if(e.data&&e.data.handedness)hands[e.data.handedness]=h})}
  bind(h0);bind(h1)
