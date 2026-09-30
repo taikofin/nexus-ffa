@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#07131d">
+<title>NEXUS FFA — Quest</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#07131d;color:#fff;font-family:Arial,system-ui,sans-serif;touch-action:none}
+canvas{display:block;width:100%;height:100%}
+#boot{position:fixed;z-index:10;left:50%;top:50%;transform:translate(-50%,-50%);width:min(92vw,520px);padding:24px;border-radius:20px;background:rgba(4,15,24,.92);border:1px solid rgba(98,246,255,.34);text-align:center;backdrop-filter:blur(12px)}
+.logo{font-size:34px;letter-spacing:.16em;font-weight:900}.logo span{color:#61f5ff}.sub{margin:6px 0 18px;color:#ff5bc9;font-size:12px;letter-spacing:.22em;font-weight:800}
+button{border:0;border-radius:999px;padding:14px 22px;font-size:17px;font-weight:900;background:#61f5ff;color:#051118;min-width:160px}
+.status{margin-top:12px;font-size:13px;line-height:1.4;color:#d6e8ef}.tiny{margin-top:12px;font-size:11px;line-height:1.45;opacity:.7}
+#hud{position:fixed;z-index:5;top:14px;left:14px;pointer-events:none;text-shadow:0 2px 7px #000;font-size:14px;line-height:1.5}
+#msg{color:#61f5ff;font-weight:900;min-height:22px}body.xr #boot{display:none}
+</style>
+</head>
+<body>
+<div id="boot">
+  <div class="logo">NEXUS <span>FFA</span></div>
+  <div class="sub">RUSH // QUEST BUILD</div>
+  <button id="enter">ENTER VR</button>
+  <div class="status" id="status">Starting renderer…</div>
+  <div class="tiny">Quest 3: allow hand tracking. This build is designed to run from HTTPS in Meta Quest Browser.</div>
+</div>
+<div id="hud">
+  <div><b>NEXUS RUSH</b> · <span id="timer">7:00</span></div>
+  <div>CARRY <b id="carry">0</b> · BANK <b id="score">0</b>/30 · <span id="weapon">HANDGUN</span></div>
+  <div id="msg"></div>
+</div>
+<canvas id="c"></canvas>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script>
+(function(){
+const status=document.getElementById("status"),canvas=document.getElementById("c");
+if(!window.THREE){status.textContent="Three.js could not load. Make sure the Quest is online.";return}
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x95c9de);scene.fog=new THREE.Fog(0x95c9de,50,175);
+const renderer=new THREE.WebGLRenderer({canvas:canvas,antialias:false,powerPreference:"high-performance"});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.25));renderer.setSize(innerWidth,innerHeight);renderer.xr.enabled=true;
+const rig=new THREE.Group();scene.add(rig);
+const camera=new THREE.PerspectiveCamera(72,innerWidth/innerHeight,.05,250);camera.position.set(0,1.65,7);rig.add(camera);
+scene.add(new THREE.HemisphereLight(0xe2f7ff,0x1b2630,1.8));
+const sun=new THREE.DirectionalLight(0xffdfad,2.4);sun.position.set(-20,35,12);scene.add(sun);
+
+function sm(c,r,m,e){return new THREE.MeshStandardMaterial({color:c,roughness:r,metalness:m,emissive:e||0})}
+const M={road:sm(0x101920,.3,.2),conc:sm(0x5f6b74,.82,.02),glass:sm(0x173d51,.16,.52,0x071825),
+enemy:sm(0xe9eef3,.5,.05,0x4d102e),cyan:new THREE.MeshBasicMaterial({color:0x60f6ff}),
+pink:new THREE.MeshBasicMaterial({color:0xff55c8}),orange:new THREE.MeshBasicMaterial({color:0xff913e})};
+function box(x,y,z,sx,sy,sz,mat,parent){const o=new THREE.Mesh(new THREE.BoxGeometry(sx,sy,sz),mat);o.position.set(x,y,z);(parent||scene).add(o);return o}
+box(0,-.26,0,72,.5,150,M.road);
+for(let s of [-1,1])for(let z=-65;z<=65;z+=14){let h=11+(Math.abs((z*7+s*13)|0)%25),x=s*(24+(Math.abs(z)%7));
+ box(x,h/2,z,18,h,11,((z/14)|0)%2?M.conc:M.glass);
+ for(let yy=3;yy<h-1;yy+=4)box(x-s*9.03,yy,z,.09,.18,7.5,(yy+z)%8?M.cyan:M.pink)}
+for(let z=-55;z<60;z+=22){box(-10,.04,z,15,.05,.8,M.cyan);box(10,.04,z,15,.05,.8,M.pink)}
+for(let i=0;i<34;i++){let a=i*2.39,r=54+(i%5)*11,h=12+(i*17)%40;box(Math.cos(a)*r,h/2-1,Math.sin(a)*r,8+(i%4)*4,h,8+(i%3)*3,i%3?M.glass:M.conc)}
+
+const bank=new THREE.Group();bank.add(new THREE.Mesh(new THREE.CylinderGeometry(1.1,1.1,2.7,12),M.cyan));
+let ring=new THREE.Mesh(new THREE.TorusGeometry(1.9,.1,8,22),M.pink);ring.rotation.x=Math.PI/2;bank.add(ring);scene.add(bank);
+
+const bots=[];function spawn(i){let g=new THREE.Group(),b=new THREE.Mesh(new THREE.CapsuleGeometry(.42,1.05,4,8),M.enemy);b.position.y=1.15;g.add(b);
+let r=new THREE.Mesh(new THREE.TorusGeometry(.5,.05,6,16),M.pink);r.position.y=1.55;r.rotation.x=Math.PI/2;g.add(r);
+g.position.set((i%2?1:-1)*(5+(i*3)%15),0,-29+i*8);g.userData={hp:100,alive:true,respawn:0,phase:i};scene.add(g);bots.push(g)}
+for(let i=0;i<7;i++)spawn(i);
+
+let carry=0,score=0,weapon="HANDGUN",remaining=420,last=performance.now(),bankT=0,echoes=[],msgTimer=0;
+const ray=new THREE.Raycaster(),tmp=new THREE.Vector3();
+function flash(s){document.getElementById("msg").textContent=s;msgTimer=1}
+function setWeapon(w){if(w!==weapon){weapon=w;document.getElementById("weapon").textContent=w;flash(w)}}
+function rootBot(o){while(o&&o.parent&&!bots.includes(o))o=o.parent;return bots.includes(o)?o:null}
+function tracer(o,d){let geo=new THREE.BufferGeometry().setFromPoints([o,o.clone().addScaledVector(d,32)]),l=new THREE.Line(geo,M.orange);scene.add(l);setTimeout(()=>scene.remove(l),80)}
+function kill(b){if(!b||!b.userData.alive)return;b.userData.alive=false;b.visible=false;b.userData.respawn=3;carry++;flash("NEXUS ENERGY +1")}
+function shoot(o,d,damage){ray.set(o,d);let hs=ray.intersectObjects(bots.filter(b=>b.userData.alive),true);if(hs.length){let b=rootBot(hs[0].object);if(b){b.userData.hp-=damage;if(b.userData.hp<=0)kill(b)}}tracer(o,d)}
+function swordHit(p){for(let b of bots)if(b.userData.alive&&b.position.clone().add(new THREE.Vector3(0,1,0)).distanceTo(p)<2.1){b.userData.hp-=65;if(b.userData.hp<=0)kill(b)}}
+function knife(from){let t=null,best=18;for(let b of bots){if(!b.userData.alive)continue;let d=b.position.distanceTo(from);if(d<best){best=d;t=b}}if(!t)return;
+let k=box(from.x,from.y,from.z,.05,.05,.5,M.cyan),to=t.position.clone().add(new THREE.Vector3(0,1.2,0)),st=performance.now();
+(function go(){let u=Math.min(1,(performance.now()-st)/520);k.position.lerpVectors(from,to,u);k.rotation.z+=.55;if(u<1)requestAnimationFrame(go);else{t.userData.hp-=120;if(t.userData.hp<=0)kill(t);flash("KNIFE IMPACT");setTimeout(()=>scene.remove(k),180)}})()}
+
+let hands={left:null,right:null},gesture="HANDGUN",candidate="",candidateAt=0,fireLatch=false,knifeLatch=false,lastTip=new THREE.Vector3();
+function joint(hand,n){return hand&&hand.joints?hand.joints[n]:null}
+function dist(a,b){return a&&b?a.position.distanceTo(b.position):99}
+function setupXRInputs(){
+ const h0=renderer.xr.getHand(0),h1=renderer.xr.getHand(1);rig.add(h0);rig.add(h1);
+ function bind(h){h.addEventListener("connected",e=>{if(e.data&&e.data.handedness)hands[e.data.handedness]=h})}
+ bind(h0);bind(h1)
+}
+setupXRInputs();
+
+function handLogic(dt){
+ const R=hands.right,L=hands.left,now=performance.now();
+ if(R){
+  const w=joint(R,"wrist"),it=joint(R,"index-finger-tip"),im=joint(R,"index-finger-metacarpal"),mt=joint(R,"middle-finger-tip"),rt=joint(R,"ring-finger-tip"),pt=joint(R,"pinky-finger-tip"),tt=joint(R,"thumb-tip");
+  if(w&&it&&mt&&rt&&pt){
+   let open=[it,mt,rt,pt].filter(j=>dist(j,w)>.105).length,fg=dist(it,w)>.11&&dist(mt,w)<.095,c=fg?"SNIPER":open>=3?"SWORD":"HANDGUN";
+   if(c!==candidate){candidate=c;candidateAt=now}else if(c!==gesture&&now-candidateAt>180){gesture=c;setWeapon(c)}
+   if(weapon==="SNIPER"&&tt){let sq=dist(tt,mt)<.027;if(sq&&!fireLatch)fireLatch=true;if(!sq&&fireLatch){fireLatch=false;let d=it.position.clone().sub((im||w).position).normalize();shoot(it.position.clone(),d,110);flash("BULLET TIME HIT")}}
+   if(weapon==="SWORD"){let speed=it.position.distanceTo(lastTip)/Math.max(dt,.001);if(speed>1.4){swordHit(it.position);echoes.push({t:now+1000,p:it.position.clone()})}lastTip.copy(it.position)}
+  }
+ }
+ if(L){
+  const w=joint(L,"wrist"),it=joint(L,"index-finger-tip"),rt=joint(L,"ring-finger-tip"),tt=joint(L,"thumb-tip");
+  if(w&&it&&rt&&tt){
+   if(dist(tt,rt)<.03){let d=it.position.clone().sub(w.position);d.y=0;if(d.lengthSq()>.001){d.normalize();rig.position.addScaledVector(d,dt*5)}}
+   if(weapon==="SNIPER"){let op=dist(it,w)>.11&&dist(rt,w)>.09;if(op&&!knifeLatch){knifeLatch=true;knife(w.position.clone())}if(!op)knifeLatch=false}
+  }
+ }
+}
+
+const keys={};addEventListener("keydown",e=>{keys[e.code]=1;if(e.key==="1")setWeapon("HANDGUN");if(e.key==="2")setWeapon("SWORD");if(e.key==="3")setWeapon("SNIPER")});addEventListener("keyup",e=>keys[e.code]=0);
+canvas.addEventListener("click",()=>{if(!renderer.xr.isPresenting){canvas.requestPointerLock&&canvas.requestPointerLock();camera.getWorldDirection(tmp);shoot(camera.getWorldPosition(new THREE.Vector3()),tmp.clone(),weapon==="SNIPER"?110:55)}});
+addEventListener("mousemove",e=>{if(document.pointerLockElement===canvas){rig.rotation.y-=e.movementX*.002;camera.rotation.x=Math.max(-1.3,Math.min(1.3,camera.rotation.x-e.movementY*.002))}});
+function desktop(dt){let d=new THREE.Vector3((keys.KeyD?1:0)-(keys.KeyA?1:0),0,(keys.KeyS?1:0)-(keys.KeyW?1:0));if(d.lengthSq()){d.normalize().applyAxisAngle(new THREE.Vector3(0,1,0),rig.rotation.y);rig.position.addScaledVector(d,dt*(weapon==="SWORD"?9:5))}}
+function botLogic(dt,t){for(let b of bots){if(!b.userData.alive){b.userData.respawn-=dt;if(b.userData.respawn<=0){b.userData.alive=true;b.visible=true;b.userData.hp=100;b.position.set((Math.random()-.5)*30,0,-20+(Math.random()-.5)*70)}continue}
+let to=rig.position.clone().sub(b.position);to.y=0;if(to.length()>5)b.position.addScaledVector(to.normalize(),dt*.55);b.rotation.y=Math.atan2(to.x,to.z);b.children[1].rotation.z=t*2+b.userData.phase;
+if(Math.sin(t*1.4+b.userData.phase)>.996){let o=b.position.clone().add(new THREE.Vector3(0,1.4,0)),d=camera.getWorldPosition(new THREE.Vector3()).sub(o).normalize();tracer(o,d)}}}
+function bankLogic(dt,t){bankT+=dt*.8;bank.position.set(Math.sin(bankT)*14,1.5,-8+Math.cos(bankT*.73)*31);ring.rotation.z=t*1.7;if(rig.position.distanceTo(bank.position)<3.4&&carry){score+=carry;carry=0;flash(score>=30?"NEXUS RUSH WON":"ENERGY BANKED")}}
+function frame(){
+ let now=performance.now(),dt=Math.min(.05,(now-last)/1000),t=now/1000;last=now;if(!renderer.xr.isPresenting)desktop(dt);handLogic(dt);botLogic(dt,t);bankLogic(dt,t);
+ echoes=echoes.filter(e=>{if(now>=e.t){swordHit(e.p);flash("ECHO SLASH");return false}return true});
+ remaining=Math.max(0,remaining-dt);document.getElementById("timer").textContent=Math.floor(remaining/60)+":"+String(Math.floor(remaining%60)).padStart(2,"0");
+ document.getElementById("carry").textContent=carry;document.getElementById("score").textContent=score;if(msgTimer>0){msgTimer-=dt;if(msgTimer<=0)document.getElementById("msg").textContent=""}
+ renderer.render(scene,camera)
+}
+renderer.setAnimationLoop(frame);
+
+async function enter(){
+ if(!navigator.xr){status.textContent="WebXR is unavailable in this browser.";return}
+ try{
+  let ok=await navigator.xr.isSessionSupported("immersive-vr");if(!ok)throw Error("Immersive VR not available");
+  let session=await navigator.xr.requestSession("immersive-vr",{requiredFeatures:["local-floor"],optionalFeatures:["hand-tracking"]});
+  await renderer.xr.setSession(session);document.body.classList.add("xr");session.addEventListener("end",()=>document.body.classList.remove("xr"))
+ }catch(e){status.textContent="VR start failed: "+e.message}
+}
+document.getElementById("enter").addEventListener("click",enter);
+status.textContent="3D build loaded. "+(navigator.xr?"WebXR detected — press ENTER VR.":"Open this HTTPS site in Meta Quest Browser for VR.");
+addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+})();
+</script>
+</body>
+</html>
