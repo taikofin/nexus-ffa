@@ -1,0 +1,69 @@
+name: NEXUS Smoke Test
+
+on:
+  workflow_run:
+    workflows: ["pages build and deployment"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Discover current NEXUS build
+        shell: bash
+        run: |
+          set -euo pipefail
+          PAGE="$(grep -oE 'v[0-9]+\.html' index.html | head -1)"
+          test -n "$PAGE"
+          SCRIPT="$(grep -oE 'nexus-v[0-9]+\.js' "$PAGE" | head -1)"
+          test -n "$SCRIPT"
+          echo "PAGE=$PAGE" >> "$GITHUB_ENV"
+          echo "SCRIPT=$SCRIPT" >> "$GITHUB_ENV"
+          echo "Testing $PAGE + $SCRIPT"
+
+      - name: Parse-check game JavaScript
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "$SCRIPT" /tmp/nexus-smoke.mjs
+          node --check /tmp/nexus-smoke.mjs
+
+      - name: Verify deployed page and script are actually live
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://taikofin.github.io/nexus-ffa"
+
+          fetch_with_retry () {
+            local url="$1"
+            local output="$2"
+            for attempt in {1..18}; do
+              code="$(curl -L -sS -o "$output" -w "%{http_code}" "$url" || true)"
+              if [ "$code" = "200" ]; then
+                echo "LIVE: $url"
+                return 0
+              fi
+              echo "Attempt $attempt: $url returned $code; waiting..."
+              sleep 5
+            done
+            echo "FAILED: $url never returned HTTP 200"
+            return 1
+          }
+
+          fetch_with_retry "$BASE/$PAGE?smoke=${GITHUB_RUN_ID}" /tmp/page.html
+          fetch_with_retry "$BASE/$SCRIPT?smoke=${GITHUB_RUN_ID}" /tmp/game.js
+
+          grep -q "FRESH FILE" /tmp/page.html
+          grep -q "type=\"module\"" /tmp/page.html
+          grep -q "import \* as THREE" /tmp/game.js
+
+          echo "NEXUS deployment smoke test passed."
