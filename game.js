@@ -965,17 +965,20 @@ function frame(){
 renderer.setAnimationLoop(frame);
 
 const enterButton=document.getElementById("enter");
+const safeButton=document.getElementById("enterSafe");
 let enteringVR=false;
 
 function resetEntry(message){
   enteringVR=false;
   document.body.classList.remove("xr");
   enterButton.disabled=false;
-  enterButton.textContent="ENTER VR";
+  safeButton.disabled=false;
+  enterButton.textContent="ENTER VR + HANDS";
+  safeButton.textContent="SAFE VR";
   if(message)status.textContent=message;
 }
 
-async function enterVR(){
+async function enterVR(useHands){
   if(enteringVR)return;
   if(!window.isSecureContext){
     resetEntry("VR blocked: this page is not a secure HTTPS context.");
@@ -988,25 +991,24 @@ async function enterVR(){
 
   enteringVR=true;
   enterButton.disabled=true;
-  enterButton.textContent="ENTERING VR…";
-  status.textContent="Quest: starting immersive session…";
+  safeButton.disabled=true;
+  if(useHands)enterButton.textContent="ENTERING…";
+  else safeButton.textContent="ENTERING…";
+  status.textContent=useHands?"Quest: starting VR with hand tracking…":"Quest: starting safe VR…";
 
   try{
     const supported=await navigator.xr.isSessionSupported("immersive-vr");
     if(!supported)throw new Error("Quest reports immersive-vr unsupported on this page");
 
-    // Intentionally request NO optional/required features here.
-    // This is the lowest-friction WebXR entry path.
-    const session=await navigator.xr.requestSession("immersive-vr");
+    const init=useHands?{optionalFeatures:["hand-tracking"]}:undefined;
+    const session=await navigator.xr.requestSession("immersive-vr",init);
 
     session.addEventListener("end",()=>{
-      resetEntry("VR session ended — press ENTER VR to play again.");
+      resetEntry("VR session ended — pick a VR button to jump back in.");
       resizeFlatStage();
     },{once:true});
 
     await renderer.xr.setSession(session);
-
-    // Give WebXR manager one frame to transition before hiding the launcher.
     await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
 
     if(!renderer.xr.isPresenting){
@@ -1016,22 +1018,22 @@ async function enterVR(){
 
     enteringVR=false;
     document.body.classList.add("xr");
-    status.textContent="VR ACTIVE";
+    status.textContent=useHands?"VR ACTIVE — HAND TRACKING REQUESTED":"VR ACTIVE — SAFE MODE";
   }catch(err){
     resetEntry("VR ERROR: "+(err&&err.name?err.name+": ":"")+(err&&err.message?err.message:String(err)));
   }
 }
 
-enterButton.addEventListener("click",enterVR);
+enterButton.addEventListener("click",()=>enterVR(true));
+safeButton.addEventListener("click",()=>enterVR(false));
 
 renderer.xr.addEventListener("sessionstart",()=>{
   document.body.classList.add("xr");
-  status.textContent="VR ACTIVE";
 });
 renderer.xr.addEventListener("sessionend",()=>{
-  if(!enteringVR)resetEntry("VR session ended — press ENTER VR to play again.");
+  if(!enteringVR)resetEntry("VR session ended — pick a VR button to play again.");
 });
 
-status.textContent="NEXUS v11 loaded — bare Quest VR entry + controller fallback.";
+status.textContent="NEXUS v12 loaded — choose HANDS or SAFE VR.";
 addEventListener("resize",resizeFlatStage);
 })();
