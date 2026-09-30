@@ -323,6 +323,8 @@ const speedLines=new THREE.LineSegments(speedGeo,speedMat);
 scene.add(speedLines);
 
 const velocity=new THREE.Vector3();
+const GROUND_Y=0;
+let grounded=true;
 
 const wheelVisual=new THREE.Group();
 const wheelRing=new THREE.Mesh(
@@ -349,6 +351,7 @@ function beginStunt(mode){
  if(stuntActive)return;
  stuntMode=mode;
  stuntActive=true;
+ grounded=false;
  stuntStart=performance.now();
  stuntDuration=mode==="front"?1280:1120;
  stuntSide=Math.random()<.5?-1:1;
@@ -417,7 +420,7 @@ function updateStunt(dt,poses){
   stuntActive=false;
   cameraFX.rotation.set(0,0,0);
   cameraFX.position.set(0,0,0);
-  status.innerHTML="<b>NEXUS ACTIVE</b><br>Finger-gun stunts ready.";
+  status.innerHTML="<b>NEXUS ACTIVE</b><br>Back on street control.";
  }
 }
 
@@ -468,14 +471,12 @@ function updateInput(dt){
    velocity.x=THREE.MathUtils.lerp(velocity.x,targetVelocity.x,1-Math.exp(-dt*3.8));
    velocity.z=THREE.MathUtils.lerp(velocity.z,targetVelocity.z,1-Math.exp(-dt*3.8));
 
-   // Tiny lift from raising the whole wheel, but keep it primarily steering.
-   const headPos=camera.getWorldPosition(new THREE.Vector3());
-   const wheelHeight=center.y-headPos.y;
-   velocity.y=THREE.MathUtils.lerp(
-    velocity.y,
-    THREE.MathUtils.clamp((wheelHeight+.18)*2.2,-1.2,1.8),
-    1-Math.exp(-dt*2.6)
-   );
+   // Ground-driving mode: the wheel only steers on the street.
+   if(!stuntActive){
+    velocity.y=0;
+    player.position.y=GROUND_Y;
+    grounded=true;
+   }
 
    wheelVisual.visible=true;
    wheelVisual.position.copy(center);
@@ -547,9 +548,30 @@ const clock=new THREE.Clock();
 renderer.setAnimationLoop(()=>{
  const dt=Math.min(.04,clock.getDelta());
  updateInput(dt);
- player.position.addScaledVector(velocity,dt);
- velocity.multiplyScalar(Math.pow(.992,dt*60));
- if(player.position.y<0)player.position.y=0;
+
+ // Stunts can go airborne. Normal steering stays locked to the floor.
+ if(stuntActive){
+  velocity.y-=5.8*dt;
+  player.position.addScaledVector(velocity,dt);
+ }else{
+  velocity.y=0;
+  player.position.y=GROUND_Y;
+  player.position.x+=velocity.x*dt;
+  player.position.z+=velocity.z*dt;
+  grounded=true;
+ }
+
+ // Land cleanly after a stunt instead of hovering or sinking.
+ if(player.position.y<=GROUND_Y){
+  player.position.y=GROUND_Y;
+  if(velocity.y<0)velocity.y=0;
+  if(!stuntActive)grounded=true;
+ }
+
+ velocity.x*=Math.pow(.992,dt*60);
+ velocity.z*=Math.pow(.992,dt*60);
+ if(stuntActive)velocity.y*=Math.pow(.997,dt*60);
+
  updateBots(dt);
  updateBullets(dt);
  updateSpeedFx();
@@ -567,7 +589,7 @@ async function enterVR(){
    optionalFeatures:["hand-tracking"]
   });
   await renderer.xr.setSession(session);
-  status.innerHTML="<b>NEXUS ACTIVE</b><br>Two-hand steering wheel + proximity-trigger finger guns ready.";
+  status.innerHTML="<b>NEXUS ACTIVE</b><br>Street-grounded steering + travel-time bullets ready.";
  }catch(err){
   status.innerHTML="<b>VR START FAILED</b><br>"+String(err&&err.message?err.message:err);
  }
@@ -585,7 +607,7 @@ renderer.xr.addEventListener("sessionstart",()=>{
 renderer.xr.addEventListener("sessionend",()=>{
  button.style.display="";
  cameraFX.rotation.set(0,0,0);
- status.innerHTML="<b>NEXUS v19</b><br>VR ended. Enter again when ready.";
+ status.innerHTML="<b>NEXUS v20</b><br>VR ended. Enter again when ready.";
 });
 
 addEventListener("resize",()=>{
@@ -594,4 +616,4 @@ addEventListener("resize",()=>{
  renderer.setSize(innerWidth,innerHeight);
 });
 
-status.innerHTML="<b>NEXUS v19</b><br>Grab both hands like a steering wheel to steer. Finger guns only fire when aim is close; bullets have travel time.";
+status.innerHTML="<b>NEXUS v20</b><br>Ground-driving active: steering wheel keeps you on the street. Stunts can leave the floor, then land back on it.";
