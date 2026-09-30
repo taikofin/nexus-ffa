@@ -35,6 +35,7 @@ const renderer = new THREE.WebGLRenderer({
 });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.2));
 renderer.xr.enabled = true;
+renderer.xr.setReferenceSpaceType("local");
 renderer.outputEncoding = THREE.sRGBEncoding;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.12;
@@ -916,48 +917,74 @@ function frame(){
 }
 renderer.setAnimationLoop(frame);
 
-const oldEnterButton=document.getElementById("enter");
-let officialVRButton=null;
+const enterButton=document.getElementById("enter");
+let enteringVR=false;
 
-if(window.VRButton&&typeof VRButton.createButton==="function"){
-  officialVRButton=VRButton.createButton(renderer,{
-    requiredFeatures:["local-floor"],
-    optionalFeatures:["hand-tracking","bounded-floor"]
-  });
-  officialVRButton.id="enter";
-  officialVRButton.style.position="static";
-  officialVRButton.style.left="";
-  officialVRButton.style.bottom="";
-  officialVRButton.style.width="";
-  officialVRButton.style.height="";
-  officialVRButton.style.margin="0 auto";
-  officialVRButton.style.padding="14px 22px";
-  officialVRButton.style.border="0";
-  officialVRButton.style.borderRadius="999px";
-  officialVRButton.style.fontSize="17px";
-  officialVRButton.style.fontWeight="900";
-  officialVRButton.style.background="#61f5ff";
-  officialVRButton.style.color="#051118";
-  officialVRButton.style.opacity="1";
-  officialVRButton.style.zIndex="1";
-  officialVRButton.style.cursor="pointer";
-  oldEnterButton.replaceWith(officialVRButton);
-}else{
-  oldEnterButton.disabled=true;
-  oldEnterButton.textContent="VR BUTTON FAILED";
-  status.textContent="Official WebXR button failed to load.";
+function resetEntry(message){
+  enteringVR=false;
+  document.body.classList.remove("xr");
+  enterButton.disabled=false;
+  enterButton.textContent="ENTER VR";
+  if(message)status.textContent=message;
 }
+
+async function enterVR(){
+  if(enteringVR)return;
+  if(!window.isSecureContext){
+    resetEntry("VR blocked: this page is not a secure HTTPS context.");
+    return;
+  }
+  if(!navigator.xr){
+    resetEntry("VR blocked: navigator.xr is missing in this browser.");
+    return;
+  }
+
+  enteringVR=true;
+  enterButton.disabled=true;
+  enterButton.textContent="ENTERING VR…";
+  status.textContent="Quest: starting immersive session…";
+
+  try{
+    const supported=await navigator.xr.isSessionSupported("immersive-vr");
+    if(!supported)throw new Error("Quest reports immersive-vr unsupported on this page");
+
+    // Intentionally request NO optional/required features here.
+    // This is the lowest-friction WebXR entry path.
+    const session=await navigator.xr.requestSession("immersive-vr");
+
+    session.addEventListener("end",()=>{
+      resetEntry("VR session ended — press ENTER VR to play again.");
+      resizeFlatStage();
+    },{once:true});
+
+    await renderer.xr.setSession(session);
+
+    // Give WebXR manager one frame to transition before hiding the launcher.
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+
+    if(!renderer.xr.isPresenting){
+      try{await session.end()}catch(_){}
+      throw new Error("Session opened but renderer never entered immersive presentation");
+    }
+
+    enteringVR=false;
+    document.body.classList.add("xr");
+    status.textContent="VR ACTIVE";
+  }catch(err){
+    resetEntry("VR ERROR: "+(err&&err.name?err.name+": ":"")+(err&&err.message?err.message:String(err)));
+  }
+}
+
+enterButton.addEventListener("click",enterVR);
 
 renderer.xr.addEventListener("sessionstart",()=>{
   document.body.classList.add("xr");
-  status.textContent="VR ACTIVE — show your hands to Quest.";
+  status.textContent="VR ACTIVE";
 });
 renderer.xr.addEventListener("sessionend",()=>{
-  document.body.classList.remove("xr");
-  status.textContent="VR session ended — press ENTER VR to jump back in.";
-  resizeFlatStage();
+  if(!enteringVR)resetEntry("VR session ended — press ENTER VR to play again.");
 });
 
-status.textContent="NEXUS v9 loaded — official WebXR entry ready.";
+status.textContent="NEXUS v10 loaded — bare-minimum Quest WebXR entry.";
 addEventListener("resize",resizeFlatStage);
 })();
