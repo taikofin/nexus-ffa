@@ -253,8 +253,12 @@ function updateCinematicMotionFX(dt,t){
  const pitchTarget=THREE.MathUtils.clamp(vertical*.0011,-.018,.018)*speed01;
  cinematicBank=THREE.MathUtils.lerp(cinematicBank,bankTarget,1-Math.exp(-dt*2.7));
  cinematicPitch=THREE.MathUtils.lerp(cinematicPitch,pitchTarget,1-Math.exp(-dt*2.3));
- cameraFX.rotation.z=cinematicBank;
- cameraFX.rotation.x=cinematicPitch;
+ if(!stuntCameraActive){
+  cameraFX.rotation.z=cinematicBank;
+  cameraFX.rotation.x=cinematicPitch;
+  cameraFX.rotation.y=THREE.MathUtils.lerp(cameraFX.rotation.y,0,1-Math.exp(-dt*4.5));
+  cameraFX.position.lerp(new THREE.Vector3(0,0,0),1-Math.exp(-dt*5.0));
+ }
 
  // Speed haze/exposure from WEB RUSH, kept subtle for VR.
  scene.fog.far=THREE.MathUtils.lerp(170,132,speed01);
@@ -701,6 +705,9 @@ let fingerJumpCooldownUntil=0;
 let fingerJumpShotAt=0;
 let fingerJumpLean=0;
 const fingerJumpDir=new THREE.Vector3();
+let stuntCameraPhase=0;
+let stuntCameraActive=false;
+let stuntCameraSide=1;
 
 function triggerFingerGunJump(leftPose,rightPose){
  const now=performance.now();
@@ -718,33 +725,107 @@ function triggerFingerGunJump(leftPose,rightPose){
 
  bodyProxy.position.z=.42;
  fingerJumpLean=1;
- status.innerHTML="<b>FINGER-GUN STUNT</b><br>Both hands up — cinematic backward jump.";
+ status.innerHTML="<b>AUTO STUNT</b><br>NEXUS is controlling the body + camera choreography.";
 }
 
 function updateFingerGunJump(dt,leftPose,rightPose){
  const now=performance.now();
  const active=now<fingerJumpUntil;
- const targetLean=active?1:0;
- fingerJumpLean=THREE.MathUtils.lerp(fingerJumpLean,targetLean,1-Math.exp(-dt*7));
 
- // Keep the avatar slightly forward in view during the stunt without hijacking head-look.
- bodyProxy.position.z=THREE.MathUtils.lerp(bodyProxy.position.z,active?.48:.18,1-Math.exp(-dt*7));
- bodyProxy.rotation.x=THREE.MathUtils.lerp(bodyProxy.rotation.x,active?.28:0,1-Math.exp(-dt*6));
+ if(active){
+  stuntCameraPhase=THREE.MathUtils.clamp(
+   1-(fingerJumpUntil-now)/1120,
+   0,1
+  );
+ }else if(stuntCameraActive){
+  stuntCameraActive=false;
+ }
+
+ const ease=stuntCameraPhase<.5
+  ?2*stuntCameraPhase*stuntCameraPhase
+  :1-Math.pow(-2*stuntCameraPhase+2,2)/2;
+ const arc=Math.sin(Math.PI*stuntCameraPhase);
+ const kick=Math.sin(Math.PI*Math.min(1,stuntCameraPhase*1.15));
+
+ fingerJumpLean=THREE.MathUtils.lerp(
+  fingerJumpLean,
+  active?1:0,
+  1-Math.exp(-dt*7)
+ );
+
+ // Full-body stunt is automatically staged in front of the player.
+ bodyProxy.position.z=THREE.MathUtils.lerp(
+  bodyProxy.position.z,
+  active?.72:.18,
+  1-Math.exp(-dt*7)
+ );
+ bodyProxy.position.x=THREE.MathUtils.lerp(
+  bodyProxy.position.x,
+  active?.22*stuntCameraSide:0,
+  1-Math.exp(-dt*6)
+ );
+ bodyProxy.rotation.x=THREE.MathUtils.lerp(
+  bodyProxy.rotation.x,
+  active?.24:0,
+  1-Math.exp(-dt*6)
+ );
+ bodyProxy.rotation.y=THREE.MathUtils.lerp(
+  bodyProxy.rotation.y,
+  active?.14*stuntCameraSide:0,
+  1-Math.exp(-dt*5.5)
+ );
+ bodyProxy.rotation.z=THREE.MathUtils.lerp(
+  bodyProxy.rotation.z,
+  active?-.42*stuntCameraSide:0,
+  1-Math.exp(-dt*5.5)
+ );
+ updateBodyProxyPose(active);
+
+ // Automatic cinematic camera choreography.
+ // The headset still tracks locally inside cameraFX, but NEXUS adds the stunt framing.
+ const camRollTarget=active ? (-.26*stuntCameraSide*arc) : 0;
+ const camPitchTarget=active ? (-.08*arc + .035*kick) : 0;
+ const camYawTarget=active ? (.16*stuntCameraSide*Math.sin(Math.PI*ease)) : 0;
+
+ cameraFX.rotation.z=THREE.MathUtils.lerp(
+  cameraFX.rotation.z,camRollTarget,1-Math.exp(-dt*8.5)
+ );
+ cameraFX.rotation.x=THREE.MathUtils.lerp(
+  cameraFX.rotation.x,camPitchTarget,1-Math.exp(-dt*8.0)
+ );
+ cameraFX.rotation.y=THREE.MathUtils.lerp(
+  cameraFX.rotation.y,camYawTarget,1-Math.exp(-dt*7.5)
+ );
+
+ const camX=active?.10*stuntCameraSide*arc:0;
+ const camY=active?.035*kick:0;
+ const camZ=active?-.055*arc:0;
+ cameraFX.position.x=THREE.MathUtils.lerp(cameraFX.position.x,camX,1-Math.exp(-dt*9));
+ cameraFX.position.y=THREE.MathUtils.lerp(cameraFX.position.y,camY,1-Math.exp(-dt*9));
+ cameraFX.position.z=THREE.MathUtils.lerp(cameraFX.position.z,camZ,1-Math.exp(-dt*9));
 
  if(!active)return false;
 
- // Head turn steers the drift while the actual finger-gun aim stays hand-tracked.
+ // Auto-steer the stunt itself into a smooth movie-like backward arc.
  const headF=camera.getWorldDirection(new THREE.Vector3()).projectOnPlane(WORLD_UP);
  if(headF.lengthSq()>.001){
   headF.normalize().multiplyScalar(-1);
-  fingerJumpDir.lerp(headF,1-Math.exp(-dt*2.2)).normalize();
+  fingerJumpDir.lerp(headF,1-Math.exp(-dt*1.35)).normalize();
  }
- const desired=fingerJumpDir.clone().multiplyScalar(14.5);
- desired.y=THREE.MathUtils.lerp(driftVelocity.y,2.0,1-Math.exp(-dt*1.7));
+ const desired=fingerJumpDir.clone().multiplyScalar(17.2);
+ const sideDir=new THREE.Vector3().crossVectors(WORLD_UP,fingerJumpDir).normalize();
+ desired.addScaledVector(sideDir,stuntCameraSide*(2.3*arc));
+ desired.y=THREE.MathUtils.lerp(
+  driftVelocity.y,
+  1.6+3.0*Math.sin(Math.PI*stuntCameraPhase),
+  1-Math.exp(-dt*1.7)
+ );
+
  driftVelocity.x=THREE.MathUtils.lerp(driftVelocity.x,desired.x,1-Math.exp(-dt*3.1));
  driftVelocity.z=THREE.MathUtils.lerp(driftVelocity.z,desired.z,1-Math.exp(-dt*3.1));
  driftVelocity.y=desired.y;
 
+ // During the stunt, the shooting cadence is automatic so the camera/body move remains the focus.
  if(now>=fingerJumpShotAt){
   fingerJumpShotAt=now+105;
   if(leftPose)shoot(leftPose.origin,leftPose.dir,32);
