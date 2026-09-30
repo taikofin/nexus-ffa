@@ -107,48 +107,102 @@ function decorateHand(h,side){
 function joint(h,n){return h?.joints?.[n]||null}
 function wpos(o){return o.getWorldPosition(new THREE.Vector3())}
 function dist(a,b){return a&&b?wpos(a).distanceTo(wpos(b)):99}
-function handDir(h){
- const a=joint(h,"wrist"),b=joint(h,"index-finger-metacarpal")||joint(h,"index-finger-tip");
- if(!a||!b)return null;return wpos(b).sub(wpos(a)).normalize();
+function indexDir(h){
+ const a=joint(h,"index-finger-metacarpal")||joint(h,"wrist");
+ const b=joint(h,"index-finger-tip");
+ if(!a||!b)return null;
+ return wpos(b).sub(wpos(a)).normalize();
 }
 
-const gun=new THREE.Group();
-box(0,-.05,-.06,.11,.22,.15,M.dark,gun);
-box(0,.04,-.27,.11,.11,.42,M.dark,gun);
-box(.065,.04,-.27,.015,.035,.28,M.cyan,gun);
-const muzzle=new THREE.Mesh(new THREE.OctahedronGeometry(.1),M.orange);muzzle.position.set(0,.04,-.53);muzzle.visible=false;gun.add(muzzle);
-scene.add(gun);
-let gunFireLatch=false;
+const fingerMuzzleGeo=new THREE.OctahedronGeometry(.07,0);
+const fingerMuzzles={
+ left:new THREE.Mesh(fingerMuzzleGeo,M.pink),
+ right:new THREE.Mesh(fingerMuzzleGeo,M.orange)
+};
+fingerMuzzles.left.visible=false;fingerMuzzles.right.visible=false;
+scene.add(fingerMuzzles.left,fingerMuzzles.right);
+
+const fingerLatch={left:false,right:false};
+function pulseFingerMuzzle(side,p,d){
+ const m=fingerMuzzles[side];
+ m.position.copy(p).addScaledVector(d,.035);
+ m.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,-1),d);
+ m.scale.set(.8,.8,1.8);
+ m.visible=true;
+ setTimeout(()=>m.visible=false,48);
+}
+
+const driftVelocity=new THREE.Vector3();
+const driftTarget=new THREE.Vector3();
+let dashEnergy=0;
 
 function updateHandInput(dt){
  decorateHand(hands.left,"left");decorateHand(hands.right,"right");
- const R=hands.right,L=hands.left;
- if(R){
-  const w=joint(R,"wrist"),it=joint(R,"index-finger-tip"),tt=joint(R,"thumb-tip");
-  const d=handDir(R);
-  if(w&&d){
-   const p=wpos(w);gun.visible=true;gun.position.copy(p).addScaledVector(d,.1);gun.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,-1),d);
-   const pinch=dist(it,tt)<.026;
-   if(pinch&&!gunFireLatch){gunFireLatch=true;muzzle.visible=true;setTimeout(()=>muzzle.visible=false,55);shoot(p.clone().addScaledVector(d,.18),d)}
-   if(!pinch)gunFireLatch=false;
-  } else gun.visible=false;
- } else gun.visible=false;
 
+ for(const side of ["left","right"]){
+  const h=hands[side];
+  if(!h)continue;
+  const it=joint(h,"index-finger-tip"),tt=joint(h,"thumb-tip");
+  const d=indexDir(h);
+  if(!it||!tt||!d)continue;
+  const p=wpos(it);
+  const pinch=dist(it,tt)<.026;
+  if(pinch&&!fingerLatch[side]){
+   fingerLatch[side]=true;
+   pulseFingerMuzzle(side,p,d);
+   shoot(p.clone().addScaledVector(d,.04),d,58);
+  }
+  if(!pinch)fingerLatch[side]=false;
+ }
+
+ const L=hands.left;
+ driftTarget.set(0,0,0);
  if(L){
   const w=joint(L,"wrist"),it=joint(L,"index-finger-tip"),rt=joint(L,"ring-finger-tip"),tt=joint(L,"thumb-tip");
   if(w&&it&&rt&&tt&&dist(rt,tt)<.03){
-   const d=wpos(it).sub(wpos(w));d.y=0;if(d.lengthSq()>.001){d.normalize();player.position.addScaledVector(d,dt*4.5)}
+   const headF=camera.getWorldDirection(new THREE.Vector3());headF.y=0;
+   if(headF.lengthSq()<.001)headF.set(0,0,-1);else headF.normalize();
+   const headR=new THREE.Vector3().crossVectors(headF,new THREE.Vector3(0,1,0)).normalize();
+   const hd=indexDir(L);
+   if(hd){
+    hd.y=0;
+    if(hd.lengthSq()>.001){
+     hd.normalize();
+     const sideAmt=THREE.MathUtils.clamp(hd.dot(headR),-1,1);
+     const fwdAmt=THREE.MathUtils.clamp(hd.dot(headF),-1,1);
+     const lateral=Math.abs(sideAmt);
+     const speed=THREE.MathUtils.lerp(5.2,10.5,THREE.MathUtils.smoothstep(lateral,.55,.95));
+     driftTarget.copy(headR).multiplyScalar(sideAmt).addScaledVector(headF,fwdAmt);
+     if(driftTarget.lengthSq()>.001)driftTarget.normalize().multiplyScalar(speed);
+     if(lateral>.72)dashEnergy=THREE.MathUtils.lerp(dashEnergy,1,Math.min(1,dt*12));
+    }
+   }
   }
  }
-}
 
+ const inputActive=driftTarget.lengthSq()>.001;
+ const accel=inputActive?9.5:2.4;
+ driftVelocity.lerp(driftTarget,1-Math.exp(-accel*dt));
+ if(!inputActive)driftVelocity.multiplyScalar(Math.pow(.90,dt*60));
+ dashEnergy*=Math.pow(.55,dt);
+ player.position.addScaledVector(driftVelocity,dt);
+}
 let triggerLatch=false;
 function updateControllerInput(dt){
  const L=controllers.left,R=controllers.right;
  if(L?.userData.input?.gamepad){
   const a=L.userData.input.gamepad.axes||[];const x=Math.abs(a[2]||0)>.15?(a[2]||0):0,y=Math.abs(a[3]||0)>.15?(a[3]||0):0;
   const f=camera.getWorldDirection(new THREE.Vector3());f.y=0;f.normalize();const r=new THREE.Vector3().crossVectors(f,new THREE.Vector3(0,1,0)).normalize();
-  if(x||y){const d=r.multiplyScalar(x).addScaledVector(f,-y);if(d.lengthSq())player.position.addScaledVector(d.normalize(),dt*4.8)}
+  if(x||y){
+   const d=r.multiplyScalar(x).addScaledVector(f,-y);
+   if(d.lengthSq()){
+    const lateral=Math.abs(x);
+    const speed=THREE.MathUtils.lerp(5.2,10.5,THREE.MathUtils.smoothstep(lateral,.55,.95));
+    driftTarget.copy(d.normalize()).multiplyScalar(speed);
+    driftVelocity.lerp(driftTarget,1-Math.exp(-9.5*dt));
+    player.position.addScaledVector(driftVelocity,dt);
+   }
+  }
  }
  if(R?.userData.input?.gamepad){
   const gp=R.userData.input.gamepad,pressed=!!gp.buttons?.[0]?.pressed;
@@ -180,8 +234,8 @@ const button=VRButton.createButton(renderer,{optionalFeatures:["hand-tracking","
 button.classList.add("xrbtn");
 document.body.appendChild(button);
 
-renderer.xr.addEventListener("sessionstart",()=>{status.innerHTML="<b>VR ACTIVE</b><br>Move with left controller or left thumb+ring pinch. Shoot with trigger or right index pinch.";});
+renderer.xr.addEventListener("sessionstart",()=>{status.innerHTML="<b>VR ACTIVE</b><br>Head-steered drift. Left thumb+ring = move/dash. Both index fingers aim; index+thumb pinch fires.";});
 renderer.xr.addEventListener("sessionend",()=>{status.innerHTML="<b>NEXUS STABLE</b><br>VR ended. Press ENTER VR again.";});
 
 addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
-status.innerHTML="<b>NEXUS STABLE READY</b><br>Modern Meta-style WebXR boot loaded.";
+status.innerHTML="<b>NEXUS DRIFT READY</b><br>Head-steered drifting + dual finger guns loaded.";
