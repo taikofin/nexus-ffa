@@ -124,26 +124,103 @@ function indexDir(h){
  return wpos(b).sub(wpos(a)).normalize();
 }
 
-const fingerMuzzleGeo=new THREE.OctahedronGeometry(.07,0);
-const fingerMuzzles={
- left:new THREE.Mesh(fingerMuzzleGeo,M.pink),
- right:new THREE.Mesh(fingerMuzzleGeo,M.orange)
-};
-fingerMuzzles.left.visible=false;fingerMuzzles.right.visible=false;
-scene.add(fingerMuzzles.left,fingerMuzzles.right);
+function palmCenter(h){
+ const w=joint(h,"wrist");
+ const i=joint(h,"index-finger-metacarpal");
+ const p=joint(h,"pinky-finger-metacarpal");
+ if(!w||!i||!p)return null;
+ return wpos(w).multiplyScalar(.45)
+   .addScaledVector(wpos(i),.30)
+   .addScaledVector(wpos(p),.25);
+}
 
-const fingerLatch={left:false,right:false};
-function pulseFingerMuzzle(side,p,d){
- const m=fingerMuzzles[side];
+function palmNormal(h){
+ const w=joint(h,"wrist");
+ const i=joint(h,"index-finger-metacarpal");
+ const p=joint(h,"pinky-finger-metacarpal");
+ if(!w||!i||!p)return null;
+
+ const wp=wpos(w),iv=wpos(i).sub(wp),pv=wpos(p).sub(wp);
+ let n=new THREE.Vector3().crossVectors(iv,pv).normalize();
+
+ // Always choose the palm-facing direction away from the player's head.
+ const center=palmCenter(h);
+ const camP=camera.getWorldPosition(new THREE.Vector3());
+ const away=center.clone().sub(camP).normalize();
+ if(n.dot(away)<0)n.multiplyScalar(-1);
+ return n;
+}
+
+function isOpenPalm(h){
+ const w=joint(h,"wrist");
+ if(!w)return false;
+ const wp=wpos(w);
+ const names=["index-finger-tip","middle-finger-tip","ring-finger-tip","pinky-finger-tip"];
+ let extended=0;
+ for(const name of names){
+  const j=joint(h,name);
+  if(j&&wpos(j).distanceTo(wp)>.105)extended++;
+ }
+ return extended>=3;
+}
+
+const repulsorRingGeo=new THREE.TorusGeometry(.06,.012,8,20);
+const repulsorCoreGeo=new THREE.CircleGeometry(.045,18);
+const repulsors={};
+for(const side of ["left","right"]){
+ const g=new THREE.Group();
+ const ring=new THREE.Mesh(repulsorRingGeo,side==="left"?M.cyan:M.orange);
+ const core=new THREE.Mesh(repulsorCoreGeo,new THREE.MeshBasicMaterial({
+  color:side==="left"?0xb7fbff:0xffd19a,
+  transparent:true,opacity:.9,side:THREE.DoubleSide
+ }));
+ core.position.z=.002;
+ g.add(ring,core);
+ g.visible=false;
+ scene.add(g);
+ repulsors[side]=g;
+}
+const repulsorCooldown={left:0,right:0};
+
+function updateRepulsorVisual(side,h,open){
+ const g=repulsors[side];
+ const center=palmCenter(h),dir=palmNormal(h);
+ if(!center||!dir){g.visible=false;return null}
  const headF=camera.getWorldDirection(new THREE.Vector3());headF.y=0;
  if(headF.lengthSq()<.001)headF.set(0,0,-1);else headF.normalize();
  const headR=new THREE.Vector3().crossVectors(headF,new THREE.Vector3(0,1,0)).normalize();
  const visualOffset=headR.multiplyScalar(handInertiaSide);
- m.position.copy(p).add(visualOffset).addScaledVector(d,.035);
- m.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,-1),d);
- m.scale.set(.8,.8,1.8);
- m.visible=true;
- setTimeout(()=>m.visible=false,48);
+
+ g.visible=open;
+ g.position.copy(center).add(visualOffset).addScaledVector(dir,.012);
+ g.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),dir);
+ const pulse=1+Math.sin(performance.now()*.018)*.12;
+ g.scale.setScalar(open?pulse:1);
+ return {center,dir};
+}
+
+function fireRepulsor(side,origin,dir){
+ const now=performance.now();
+ if(now<repulsorCooldown[side])return;
+ repulsorCooldown[side]=now+115;
+
+ const glow=new THREE.PointLight(side==="left"?0x8ff8ff:0xffb36b,3.5,4,2);
+ glow.position.copy(origin).addScaledVector(dir,.05);
+ scene.add(glow);
+ setTimeout(()=>scene.remove(glow),55);
+
+ const geo=new THREE.CylinderGeometry(.035,.075,2.8,8,1,true);
+ const mat=new THREE.MeshBasicMaterial({
+  color:side==="left"?0x8ff8ff:0xffb36b,
+  transparent:true,opacity:.58,blending:THREE.AdditiveBlending,depthWrite:false
+ });
+ const beam=new THREE.Mesh(geo,mat);
+ beam.position.copy(origin).addScaledVector(dir,1.4);
+ beam.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),dir);
+ scene.add(beam);
+ setTimeout(()=>{scene.remove(beam);geo.dispose();mat.dispose()},65);
+
+ shoot(origin.clone().addScaledVector(dir,.06),dir,34);
 }
 
 const shockwaves=[];
@@ -304,18 +381,17 @@ function updateHandInput(dt){
 
  for(const side of ["left","right"]){
   const h=hands[side];
-  if(!h)continue;
-  const it=joint(h,"index-finger-tip"),tt=joint(h,"thumb-tip");
-  const d=indexDir(h);
-  if(!it||!tt||!d)continue;
-  const p=wpos(it);
-  const pinch=dist(it,tt)<.026;
-  if(pinch&&!fingerLatch[side]&&!blastPose){
-   fingerLatch[side]=true;
-   pulseFingerMuzzle(side,p,d);
-   shoot(p.clone().addScaledVector(d,.04),d,58);
+  if(!h){
+   repulsors[side].visible=false;
+   continue;
   }
-  if(!pinch)fingerLatch[side]=false;
+
+  const open=isOpenPalm(h);
+  const pose=updateRepulsorVisual(side,h,open);
+  if(open&&pose&&!blastPose){
+   // Open palm = continuous repulsor fire. Closed hand = no shot.
+   fireRepulsor(side,pose.center,pose.dir);
+  }
  }
 
  const L=hands.left;
@@ -401,8 +477,8 @@ const button=VRButton.createButton(renderer,{optionalFeatures:["hand-tracking","
 button.classList.add("xrbtn");
 document.body.appendChild(button);
 
-renderer.xr.addEventListener("sessionstart",()=>{status.innerHTML="<b>VR ACTIVE</b><br>Drift with head steering. Index+thumb fires. Point BOTH index fingers straight up for PRESSURE BLAST.";});
+renderer.xr.addEventListener("sessionstart",()=>{status.innerHTML="<b>VR ACTIVE</b><br>IRON MODE: closed fists = safe. Open either palm to fire repulsors. Raise both hands upward for PRESSURE BLAST.";});
 renderer.xr.addEventListener("sessionend",()=>{status.innerHTML="<b>NEXUS STABLE</b><br>VR ended. Press ENTER VR again.";});
 
 addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
-status.innerHTML="<b>NEXUS HEATWAVE READY</b><br>Dual finger guns + head inertia + two-hands-up pressure blast.";
+status.innerHTML="<b>NEXUS IRON MODE READY</b><br>Open palms fire repulsors. Closed hands do nothing. Head-steered drift stays active.";
