@@ -23,7 +23,9 @@ document.body.appendChild(renderer.domElement);
 
 const player=new THREE.Group();
 scene.add(player);
-player.add(camera);
+const cameraFX=new THREE.Group();
+player.add(cameraFX);
+cameraFX.add(camera);
 
 const WORLD_UP=new THREE.Vector3(0,1,0);
 const WORLD_DOWN=new THREE.Vector3(0,-1,0);
@@ -198,6 +200,109 @@ function updateSurfaceGravity(dt){
 
 scene.add(new THREE.HemisphereLight(0xeafaff,0x26313a,2.1));
 const sun=new THREE.DirectionalLight(0xffd7a5,2.2);sun.position.set(-20,35,15);scene.add(sun);
+
+// WEB RUSH-inspired motion language, rebuilt as lightweight WebXR effects.
+const SPEED_FX_COUNT=44;
+const speedFxSeeds=Array.from({length:SPEED_FX_COUNT},(_,i)=>({
+ a:(i*.61803398875)%1,
+ b:(i*.38196601125+.17)%1,
+ c:(i*.754877666+.43)%1
+}));
+const speedFxPositions=new Float32Array(SPEED_FX_COUNT*2*3);
+const speedFxGeo=new THREE.BufferGeometry();
+speedFxGeo.setAttribute("position",new THREE.BufferAttribute(speedFxPositions,3));
+const speedFxMat=new THREE.LineBasicMaterial({
+ color:0xdceeff,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false
+});
+const speedFx=new THREE.LineSegments(speedFxGeo,speedFxMat);
+speedFx.frustumCulled=false;
+scene.add(speedFx);
+
+const rainCount=72;
+const rainSeeds=Array.from({length:rainCount},(_,i)=>({
+ x:((i*37)%71)/71,
+ y:((i*19)%67)/67,
+ z:((i*53)%73)/73
+}));
+const rainPos=new Float32Array(rainCount*2*3);
+const rainGeo=new THREE.BufferGeometry();
+rainGeo.setAttribute("position",new THREE.BufferAttribute(rainPos,3));
+const rainMat=new THREE.LineBasicMaterial({
+ color:0xc9d8e8,transparent:true,opacity:.16,depthWrite:false
+});
+const rainLines=new THREE.LineSegments(rainGeo,rainMat);
+rainLines.frustumCulled=false;
+scene.add(rainLines);
+
+let cinematicBank=0;
+let cinematicPitch=0;
+
+function updateCinematicMotionFX(dt,t){
+ const speed=driftVelocity.length();
+ const speed01=THREE.MathUtils.smoothstep(speed,5,24);
+ const camPos=camera.getWorldPosition(new THREE.Vector3());
+
+ // Subtle headset-safe bank: the tracked head still moves freely inside cameraFX.
+ const viewF=camera.getWorldDirection(new THREE.Vector3()).normalize();
+ let viewR=new THREE.Vector3().crossVectors(viewF,gravityState.up);
+ if(viewR.lengthSq()<.001)viewR.set(1,0,0); else viewR.normalize();
+
+ const lateral=driftVelocity.dot(viewR);
+ const vertical=driftVelocity.dot(gravityState.up);
+ const bankTarget=THREE.MathUtils.clamp(-lateral*.0022,-.045,.045)*speed01;
+ const pitchTarget=THREE.MathUtils.clamp(vertical*.0011,-.018,.018)*speed01;
+ cinematicBank=THREE.MathUtils.lerp(cinematicBank,bankTarget,1-Math.exp(-dt*2.7));
+ cinematicPitch=THREE.MathUtils.lerp(cinematicPitch,pitchTarget,1-Math.exp(-dt*2.3));
+ cameraFX.rotation.z=cinematicBank;
+ cameraFX.rotation.x=cinematicPitch;
+
+ // Speed haze/exposure from WEB RUSH, kept subtle for VR.
+ scene.fog.far=THREE.MathUtils.lerp(170,132,speed01);
+ scene.fog.near=THREE.MathUtils.lerp(45,34,speed01);
+ renderer.toneMappingExposure=THREE.MathUtils.lerp(renderer.toneMappingExposure,1+speed01*.11,1-Math.exp(-dt*2.4));
+
+ const velDir=speed>.15?driftVelocity.clone().normalize():viewF.clone().multiplyScalar(-1);
+ const up=gravityState.up.clone();
+ let right=new THREE.Vector3().crossVectors(velDir,up);
+ if(right.lengthSq()<.001)right.copy(viewR); else right.normalize();
+ const planeUp=new THREE.Vector3().crossVectors(right,velDir).normalize();
+
+ // Peripheral speed streaks stretch opposite travel.
+ for(let i=0;i<SPEED_FX_COUNT;i++){
+  const s=speedFxSeeds[i],idx=i*6;
+  const side=(s.a*2-1)*(2.2+s.c*3.2);
+  const height=(s.b*2-1)*(1.5+s.a*2.0);
+  const ahead=(s.c*2-1)*5;
+  const base=camPos.clone()
+    .addScaledVector(right,side)
+    .addScaledVector(planeUp,height)
+    .addScaledVector(velDir,ahead);
+  const len=.25+speed01*(1.2+s.b*2.2);
+  const tail=base.clone().addScaledVector(velDir,-len);
+
+  speedFxPositions[idx]=base.x; speedFxPositions[idx+1]=base.y; speedFxPositions[idx+2]=base.z;
+  speedFxPositions[idx+3]=tail.x; speedFxPositions[idx+4]=tail.y; speedFxPositions[idx+5]=tail.z;
+ }
+ speedFxGeo.attributes.position.needsUpdate=true;
+ speedFxMat.opacity=.02+speed01*.34;
+
+ // Rain wraps around the player so the city always has motion/parallax.
+ for(let i=0;i<rainCount;i++){
+  const s=rainSeeds[i],idx=i*6;
+  const phase=(s.y+t*(.34+s.z*.22))%1;
+  const x=(s.x*2-1)*12;
+  const y=(1-phase)*14-5;
+  const z=(s.z*2-1)*12;
+  const base=camPos.clone().addScaledVector(right,x).addScaledVector(up,y).addScaledVector(velDir,z);
+  const streak=up.clone().multiplyScalar(-(.6+speed01*1.3)).addScaledVector(velDir,-speed01*.7);
+  const end=base.clone().add(streak);
+
+  rainPos[idx]=base.x; rainPos[idx+1]=base.y; rainPos[idx+2]=base.z;
+  rainPos[idx+3]=end.x; rainPos[idx+4]=end.y; rainPos[idx+5]=end.z;
+ }
+ rainGeo.attributes.position.needsUpdate=true;
+ rainMat.opacity=.12+speed01*.13;
+}
 
 const M={
  road:new THREE.MeshStandardMaterial({color:0x17232a,roughness:.28,metalness:.22}),
@@ -486,8 +591,7 @@ function triggerPressureBlast(){
  scene.add(flash);
  setTimeout(()=>scene.remove(flash),150);
 
- renderer.toneMappingExposure=1.45;
- setTimeout(()=>renderer.toneMappingExposure=1.0,180);
+ renderer.toneMappingExposure=Math.max(renderer.toneMappingExposure,1.45);
 
  for(const b of bots){
   if(!b.userData.alive)continue;
@@ -788,6 +892,7 @@ renderer.setAnimationLoop(()=>{
  updateBots(dt,t);
  updateBank(dt,t);
  updateShockwaves(dt);
+ updateCinematicMotionFX(dt,t);
  renderer.render(scene,camera);
 });
 
@@ -795,8 +900,8 @@ const button=VRButton.createButton(renderer,{optionalFeatures:["hand-tracking","
 button.classList.add("xrbtn");
 document.body.appendChild(button);
 
-renderer.xr.addEventListener("sessionstart",()=>{status.innerHTML="<b>VR ACTIVE</b><br>Cinematic backward flight: palms steer only. Fixed avatar proportions. Dense city surrounds every wall-run.";});
+renderer.xr.addEventListener("sessionstart",()=>{status.innerHTML="<b>VR ACTIVE</b><br>WEB RUSH motion pass active: smooth backward flight, rain/speed streaks, fixed proportions, dense wall-running city.";});
 renderer.xr.addEventListener("sessionend",()=>{status.innerHTML="<b>NEXUS STABLE</b><br>VR ended. Press ENTER VR again.";});
 
 addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
-status.innerHTML="<b>NEXUS CITY FLIGHT READY</b><br>Smooth 22 m/s backward movie flight, constant hand proportions, and dense surrounding climbable buildings.";
+status.innerHTML="<b>NEXUS WEB-RUSH FLIGHT READY</b><br>WEB RUSH cinematic motion cues ported into hand-tracked Iron flight.";
