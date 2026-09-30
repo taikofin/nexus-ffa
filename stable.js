@@ -161,6 +161,16 @@ function updateSurfaceGravity(dt){
 
  if(gravityState.mode==="air"){
   gravityState.airborneTime+=dt;
+
+  const airContact=nearestWallContact(p);
+  if(airContact){
+   const intoWall=driftVelocity.dot(airContact.normal.clone().multiplyScalar(-1));
+   if(intoWall>1.1){
+    attachToWall(airContact);
+    return;
+   }
+  }
+
   // Momentum gets a grace window after leaving a wall/roof.
   if(gravityState.airborneTime>.7)driftVelocity.y-=3.7*dt;
   setGravityTarget(WORLD_UP,"air");
@@ -479,9 +489,10 @@ function updateShockwaves(dt){
 }
 
 function updateBlastGesture(){
- const ld=indexDir(hands.left),rd=indexDir(hands.right);
- const up=new THREE.Vector3(0,1,0);
- const bothUp=!!(ld&&rd&&ld.dot(up)>.82&&rd.dot(up)>.82);
+ const L=hands.left,R=hands.right;
+ const ld=palmNormal(L),rd=palmNormal(R);
+ const bothOpen=isOpenPalm(L)&&isOpenPalm(R);
+ const bothUp=!!(bothOpen&&ld&&rd&&ld.dot(WORLD_UP)>.78&&rd.dot(WORLD_UP)>.78);
  const now=performance.now();
 
  if(bothUp){
