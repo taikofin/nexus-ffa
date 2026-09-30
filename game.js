@@ -53,7 +53,9 @@ function resizeFlatStage(){
 }
 resizeFlatStage();
 camera.position.set(0, 1.65, 8);
-rig.add(camera);
+const viewRig=new THREE.Group();
+rig.add(viewRig);
+viewRig.add(camera);
 
 const clock = new THREE.Clock();
 const UP = new THREE.Vector3(0, 1, 0);
@@ -80,7 +82,9 @@ const mats = {
   bot: new THREE.MeshStandardMaterial({color:0xcbd7df, roughness:.48, metalness:.25, emissive:0x32091f, emissiveIntensity:.55}),
   botDark: matStd(0x25313a,.45,.55),
   puddle: new THREE.MeshBasicMaterial({color:0x8ad8ef, transparent:true, opacity:.16, depthWrite:false}),
-  rain: new THREE.PointsMaterial({color:0xcdefff, size:.025, transparent:true, opacity:.55, depthWrite:false})
+  rain: new THREE.PointsMaterial({color:0xcdefff, size:.025, transparent:true, opacity:.55, depthWrite:false}),
+  fabric: new THREE.MeshStandardMaterial({color:0x11161b,roughness:.92,metalness:.02}),
+  skin: new THREE.MeshStandardMaterial({color:0xa86f55,roughness:.82,metalness:0})
 };
 
 scene.add(new THREE.HemisphereLight(0xdff7ff, 0x222a31, 2.05));
@@ -336,10 +340,15 @@ if(renderer.xr && typeof renderer.xr.getHand==="function"){setupXRInput(0);setup
 
 function gunModel() {
   const g=new THREE.Group();
-  box(0,-.035,-.10,.12,.19,.22,mats.botDark,g);
-  box(0,.035,-.265,.095,.105,.30,mats.metal,g);
-  box(0,.05,-.445,.065,.065,.16,mats.cyanGlow,g);
-  box(.07,.035,-.23,.018,.045,.22,mats.pinkGlow,g);
+  const grip=box(0,-.075,-.045,.105,.25,.15,mats.fabric,g);grip.rotation.x=-.18;
+  box(0,.035,-.245,.115,.12,.42,mats.metal,g);
+  box(0,.055,-.455,.085,.085,.14,mats.botDark,g);
+  box(0,.115,-.235,.075,.026,.24,mats.botDark,g);
+  box(0,.12,-.41,.032,.03,.035,mats.whiteGlow,g);
+  box(0,.12,-.075,.032,.03,.035,mats.whiteGlow,g);
+  const guard=mesh(new THREE.TorusGeometry(.065,.014,6,12,Math.PI),mats.botDark,0,-.045,-.14,g);
+  guard.rotation.z=Math.PI;
+  box(.066,.02,-.25,.014,.035,.27,mats.cyanGlow,g);
   return g;
 }
 function sniperModel() {
@@ -360,6 +369,72 @@ function swordModel(mat=mats.cyanGlow) {
 const weaponRoot=new THREE.Group();scene.add(weaponRoot);
 const handgun=gunModel(),sniper=sniperModel(),sword=swordModel();
 weaponRoot.add(handgun,sniper,sword);
+
+const muzzleFlash=mesh(new THREE.OctahedronGeometry(.105,0),mats.orangeGlow,0,.045,-.565,handgun);
+muzzleFlash.scale.set(.7,.7,1.7);muzzleFlash.visible=false;
+const muzzleLight=new THREE.PointLight(0xffa04f,0,3.2,2);muzzleLight.position.set(0,.04,-.54);handgun.add(muzzleLight);
+let weaponRecoil=0,viewKick=0,motionVisual=new THREE.Vector3();
+
+function pulseMuzzle(strength=1){
+  muzzleFlash.visible=true;
+  muzzleFlash.rotation.z=Math.random()*Math.PI;
+  muzzleFlash.scale.set(.65+Math.random()*.28,.65+Math.random()*.28,1.5+Math.random()*.6);
+  muzzleLight.intensity=2.4*strength;
+  weaponRecoil=Math.max(weaponRecoil,.055*strength);
+  viewKick=Math.max(viewKick,.018*strength);
+  setTimeout(()=>{muzzleFlash.visible=false;muzzleLight.intensity=0},52);
+}
+
+const bodyRoot=new THREE.Group();scene.add(bodyRoot);
+const torso=box(0,1.02,.06,.52,.68,.30,mats.fabric,bodyRoot);
+const belt=box(0,.68,.03,.48,.09,.25,mats.botDark,bodyRoot);
+const leftLeg=cyl(-.17,.34,-.025,.105,.78,mats.fabric,bodyRoot,8);
+const rightLeg=cyl(.17,.34,-.025,.105,.78,mats.fabric,bodyRoot,8);
+leftLeg.rotation.x=-.08;rightLeg.rotation.x=-.08;
+const leftShoe=box(-.17,.035,-.17,.19,.11,.34,mats.botDark,bodyRoot);
+const rightShoe=box(.17,.035,-.17,.19,.11,.34,mats.botDark,bodyRoot);
+const sleeveGeo=new THREE.CylinderGeometry(.07,.095,1,8);
+const leftSleeve=new THREE.Mesh(sleeveGeo,mats.fabric);scene.add(leftSleeve);
+const rightSleeve=new THREE.Mesh(sleeveGeo,mats.fabric);scene.add(rightSleeve);
+const shoulderL=new THREE.Vector3(),shoulderR=new THREE.Vector3();
+const sleeveQuat=new THREE.Quaternion();
+
+function setLimb(meshObj,a,b){
+  const d=b.clone().sub(a),len=d.length();
+  if(len<.04){meshObj.visible=false;return}
+  meshObj.visible=true;
+  meshObj.position.copy(a).add(b).multiplyScalar(.5);
+  meshObj.scale.set(1,len,1);
+  sleeveQuat.setFromUnitVectors(UP,d.normalize());
+  meshObj.quaternion.copy(sleeveQuat);
+}
+
+function updateBodyPresence(dt,t){
+  const camP=camera.getWorldPosition(new THREE.Vector3());
+  const camF=camera.getWorldDirection(new THREE.Vector3());camF.y=0;
+  if(camF.lengthSq()<.001)camF.set(0,0,-1); else camF.normalize();
+  const yaw=Math.atan2(camF.x,-camF.z);
+  bodyRoot.position.set(camP.x,rig.position.y,camP.z);
+  bodyRoot.rotation.y=yaw;
+
+  const right=new THREE.Vector3().crossVectors(camF,UP).normalize();
+  const shoulderBase=camP.clone().add(new THREE.Vector3(0,-.32,0)).addScaledVector(camF,.035);
+  shoulderL.copy(shoulderBase).addScaledVector(right,-.22);
+  shoulderR.copy(shoulderBase).addScaledVector(right,.22);
+  const lw=joint(hands.left,"wrist"),rw=joint(hands.right,"wrist");
+  if(lw)setLimb(leftSleeve,shoulderL,worldPos(lw,new THREE.Vector3())); else leftSleeve.visible=false;
+  if(rw)setLimb(rightSleeve,shoulderR,worldPos(rw,new THREE.Vector3())); else rightSleeve.visible=false;
+
+  const rightAxis=new THREE.Vector3(1,0,0).applyAxisAngle(UP,rig.rotation.y);
+  const forwardAxis=new THREE.Vector3(0,0,-1).applyAxisAngle(UP,rig.rotation.y);
+  const side=motionVisual.dot(rightAxis),forward=motionVisual.dot(forwardAxis);
+  const targetRoll=THREE.MathUtils.clamp(-side*.035,-.045,.045);
+  const targetPitch=THREE.MathUtils.clamp(-forward*.018,-.022,.022)-viewKick;
+  viewRig.rotation.z=THREE.MathUtils.lerp(viewRig.rotation.z,targetRoll,Math.min(1,dt*6));
+  viewRig.rotation.x=THREE.MathUtils.lerp(viewRig.rotation.x,targetPitch,Math.min(1,dt*11));
+  viewKick*=Math.pow(.12,dt);
+  motionVisual.multiplyScalar(Math.pow(.08,dt));
+}
 const flourish=new THREE.Group();weaponRoot.add(flourish);
 const ghostSword=swordModel(new THREE.MeshStandardMaterial({color:0xff75d4,emissive:0xff2da8,emissiveIntensity:1.7,transparent:true,opacity:.32,depthWrite:false}));
 ghostSword.scale.setScalar(.88);flourish.add(ghostSword);
@@ -484,6 +559,8 @@ function hitBot(bot,damage){
   return true;
 }
 function shoot(origin,dir,damage=55,isSniper=false){
+  if(isSniper){viewKick=Math.max(viewKick,.032);weaponRecoil=Math.max(weaponRecoil,.075)}
+  else pulseMuzzle(1);
   ray.set(origin,dir);
   const hits=ray.intersectObjects(bots.filter(b=>b.userData.alive),true);
   let didHit=false;
@@ -550,7 +627,8 @@ function updateWeaponVisual(rightHand,dt,t){
   }
 
   weaponRoot.visible=true;
-  weaponRoot.position.copy(origin).addScaledVector(dir,.11);
+  weaponRecoil*=Math.pow(.055,dt);
+  weaponRoot.position.copy(origin).addScaledVector(dir,.11-weaponRecoil);
   weaponRoot.quaternion.setFromUnitVectors(FWD,dir.clone().normalize());
   if(weapon==="SWORD")flourish.rotation.z=t*5.2;
   const camP=camera.getWorldPosition(new THREE.Vector3());
@@ -609,7 +687,8 @@ function updateHandsAndControls(dt,t){
       const pinch=distance(tt,rt)<.03;
       const indexDir=pointDirection(L);
       if(pinch&&indexDir){
-        const d=indexDir.clone();d.y=0;if(d.lengthSq()>.001){d.normalize();rig.position.addScaledVector(d,dt*5.2)}
+        const d=indexDir.clone();d.y=0;
+        if(d.lengthSq()>.001){d.normalize();rig.position.addScaledVector(d,dt*5.2);motionVisual.lerp(d,.5)}
       }
       if(indexDir&&!pinch){
         const hf=camera.getWorldDirection(new THREE.Vector3());hf.y=0;hf.normalize();
@@ -714,7 +793,7 @@ addEventListener("mousemove",e=>{
 });
 function desktopMove(dt){
   let d=new THREE.Vector3((keys.KeyD?1:0)-(keys.KeyA?1:0),0,(keys.KeyS?1:0)-(keys.KeyW?1:0));
-  if(d.lengthSq()){d.normalize().applyAxisAngle(UP,rig.rotation.y);rig.position.addScaledVector(d,dt*(weapon==="SWORD"?8.5:5.3))}
+  if(d.lengthSq()){d.normalize().applyAxisAngle(UP,rig.rotation.y);rig.position.addScaledVector(d,dt*(weapon==="SWORD"?8.5:5.3));motionVisual.lerp(d,.5)}
 }
 
 let last=performance.now();
@@ -722,6 +801,7 @@ function frame(){
   const now=performance.now(),dt=Math.min(.045,(now-last)/1000),t=now/1000;last=now;
   if(!renderer.xr.isPresenting)desktopMove(dt);
   updateHandsAndControls(dt,t);
+  updateBodyPresence(dt,t);
   updateBots(dt,t);
   updateBank(dt,t);
   updateRain(dt);
@@ -748,6 +828,6 @@ async function enterVR(){
 }
 document.getElementById("enter").addEventListener("click",enterVR);
 
-status.textContent="NEXUS v5 loaded — 16:9 cinematic frame + magnetic aim.";
+status.textContent="NEXUS v6 loaded — physical first-person body + recoil + Max Payne-style gun feel.";
 addEventListener("resize",resizeFlatStage);
 })();
