@@ -1,6 +1,15 @@
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.165.0/+esm";
 import { VRButton } from "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/webxr/VRButton.js/+esm";
 
+window.__nexusErrorHookInstalled=true;
+window.addEventListener("error",e=>{
+ const el=document.getElementById("status");
+ if(el)el.innerHTML="<b>NEXUS ERROR</b><br>"+String(e.message||"Unknown script error");
+});
+window.addEventListener("unhandledrejection",e=>{
+ const el=document.getElementById("status");
+ if(el)el.innerHTML="<b>NEXUS ERROR</b><br>"+String((e.reason&&e.reason.message)||e.reason||"Unhandled promise rejection");
+});
 const status=document.getElementById("status");
 const scoreEl=document.getElementById("score");
 const carryEl=document.getElementById("carry");
@@ -425,10 +434,10 @@ const jointMatR=new THREE.MeshStandardMaterial({color:0xa4fbff,emissive:0x35ddea
 const handVisuals={left:new Map(),right:new Map()};
 
 const bodyProxy=new THREE.Group();
-const torso=new THREE.Mesh(new THREE.CapsuleGeometry(.25,.62,4,8),M.dark);
+const torso=new THREE.Mesh(new THREE.CylinderGeometry(.25,.25,.95,10),M.dark);
 torso.position.y=1.03; torso.scale.set(1.05,1,0.62); bodyProxy.add(torso);
 for(const x of [-.16,.16]){
- const leg=new THREE.Mesh(new THREE.CapsuleGeometry(.105,.62,4,8),M.dark);
+ const leg=new THREE.Mesh(new THREE.CylinderGeometry(.105,.105,.82,8),M.dark);
  leg.position.set(x,.36,.015); bodyProxy.add(leg);
 }
 const chestGlow=new THREE.Mesh(new THREE.BoxGeometry(.16,.035,.025),M.cyan);
@@ -658,7 +667,7 @@ function updateShockwaves(dt){
   const u=THREE.MathUtils.clamp(s.age/s.life,0,1);
   const scale=s.start+s.speed*s.age;
   s.mesh.scale.setScalar(scale);
-  s.mesh.material.opacity=(s.shell?.10:.26)*Math.pow(1-u,1.5);
+  s.mesh.material.opacity=(s.shell ? .10:.26)*Math.pow(1-u,1.5);
   if(u>=1){
    scene.remove(s.mesh);
    s.mesh.geometry.dispose();
@@ -734,7 +743,7 @@ function triggerAutoStunt(mode,leftPose,rightPose){
  driftVelocity.y+=front?2.2:4.3;
  detachFromSurface();
 
- bodyProxy.position.z=front?.54:.42;
+ bodyProxy.position.z=front ? .54:.42;
  fingerJumpLean=1;
  status.innerHTML=front
   ?"<b>AUTO FRONT FLIP</b><br>Direction locked to where your face was pointing. NEXUS performs the full flip."
@@ -760,7 +769,7 @@ function updateFingerGunJump(dt,leftPose,rightPose){
 
  fingerJumpLean=THREE.MathUtils.lerp(fingerJumpLean,active?1:0,1-Math.exp(-dt*7));
 
- bodyProxy.position.z=THREE.MathUtils.lerp(bodyProxy.position.z,active?(front?.56:.72):.18,1-Math.exp(-dt*7));
+ bodyProxy.position.z=THREE.MathUtils.lerp(bodyProxy.position.z,active?(front ? .56:.72):.18,1-Math.exp(-dt*7));
  bodyProxy.position.x=THREE.MathUtils.lerp(bodyProxy.position.x,active?(front?0:.22*stuntCameraSide):0,1-Math.exp(-dt*6));
  bodyProxy.rotation.y=THREE.MathUtils.lerp(bodyProxy.rotation.y,active?(front?0:.14*stuntCameraSide):0,1-Math.exp(-dt*5.5));
  bodyProxy.rotation.z=THREE.MathUtils.lerp(bodyProxy.rotation.z,active?(front?0:-.42*stuntCameraSide):0,1-Math.exp(-dt*5.5));
@@ -769,7 +778,7 @@ function updateFingerGunJump(dt,leftPose,rightPose){
   // Body and view both somersault forward so the flip is visibly obvious in-headset.
   bodyProxy.rotation.x=-Math.PI*2*ease-.18;
  }else{
-  bodyProxy.rotation.x=THREE.MathUtils.lerp(bodyProxy.rotation.x,active?.24:0,1-Math.exp(-dt*6));
+  bodyProxy.rotation.x=THREE.MathUtils.lerp(bodyProxy.rotation.x,active ? .24:0,1-Math.exp(-dt*6));
  }
  updateBodyProxyPose(active);
 
@@ -779,7 +788,7 @@ function updateFingerGunJump(dt,leftPose,rightPose){
   cameraFX.rotation.y=THREE.MathUtils.lerp(cameraFX.rotation.y,0,1-Math.exp(-dt*10));
   cameraFX.rotation.z=THREE.MathUtils.lerp(cameraFX.rotation.z,0,1-Math.exp(-dt*10));
   cameraFX.position.x=THREE.MathUtils.lerp(cameraFX.position.x,0,1-Math.exp(-dt*9));
-  cameraFX.position.y=THREE.MathUtils.lerp(cameraFX.position.y,active?.045*arc:0,1-Math.exp(-dt*9));
+  cameraFX.position.y=THREE.MathUtils.lerp(cameraFX.position.y,active ? .045*arc:0,1-Math.exp(-dt*9));
   cameraFX.position.z=THREE.MathUtils.lerp(cameraFX.position.z,active?-.04*arc:0,1-Math.exp(-dt*9));
  }else{
   const camRollTarget=active?(-.26*stuntCameraSide*arc):0;
@@ -789,8 +798,8 @@ function updateFingerGunJump(dt,leftPose,rightPose){
   cameraFX.rotation.z=THREE.MathUtils.lerp(cameraFX.rotation.z,camRollTarget,1-Math.exp(-dt*8.5));
   cameraFX.rotation.x=THREE.MathUtils.lerp(cameraFX.rotation.x,camPitchTarget,1-Math.exp(-dt*8.0));
   cameraFX.rotation.y=THREE.MathUtils.lerp(cameraFX.rotation.y,camYawTarget,1-Math.exp(-dt*7.5));
-  cameraFX.position.x=THREE.MathUtils.lerp(cameraFX.position.x,active?.10*stuntCameraSide*arc:0,1-Math.exp(-dt*9));
-  cameraFX.position.y=THREE.MathUtils.lerp(cameraFX.position.y,active?.035*kick:0,1-Math.exp(-dt*9));
+  cameraFX.position.x=THREE.MathUtils.lerp(cameraFX.position.x,active ? .10*stuntCameraSide*arc:0,1-Math.exp(-dt*9));
+  cameraFX.position.y=THREE.MathUtils.lerp(cameraFX.position.y,active ? .035*kick:0,1-Math.exp(-dt*9));
   cameraFX.position.z=THREE.MathUtils.lerp(cameraFX.position.z,active?-.055*arc:0,1-Math.exp(-dt*9));
  }
 
