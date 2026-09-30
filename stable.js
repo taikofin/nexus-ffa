@@ -49,9 +49,9 @@ function setGravityTarget(up,mode,building=null,wallNormal=null){
 }
 
 function updateGravityOrientation(dt){
- gravityState.up.lerp(gravityState.targetUp,1-Math.exp(-dt*5.5)).normalize();
+ gravityState.up.lerp(gravityState.targetUp,1-Math.exp(-dt*3.2)).normalize();
  playerTargetQuat.setFromUnitVectors(WORLD_UP,gravityState.up);
- player.quaternion.slerp(playerTargetQuat,1-Math.exp(-dt*4.8));
+ player.quaternion.slerp(playerTargetQuat,1-Math.exp(-dt*3.0));
 }
 
 function nearestWallContact(pos){
@@ -227,6 +227,43 @@ for(let s of [-1,1])for(let z=-60;z<=60;z+=15){
  addClimbBuilding(x,z,16,h,11,(i%2?M.glass:M.concrete));
  for(let y=3;y<h-1;y+=4)box(x-s*8.05,y,z,.08,.18,7,i%3?M.cyan:M.pink);
 }
+
+// Dense outer city rows so buildings surround the player in peripheral vision.
+for(const side of [-1,1]){
+ for(const baseX of [42,60]){
+  for(let z=-72;z<=72;z+=18){
+   const n=Math.round((z+72)/18)+(baseX===60?5:0)+(side>0?3:0);
+   const w=13+(n%3)*2,d=12+((n+1)%3)*2,h=20+((n*9)%30);
+   const x=side*(baseX+((n%2)*2));
+   const mat=n%3===0?M.glass:M.concrete;
+   addClimbBuilding(x,z,w,h,d,mat);
+
+   // Cheap emissive edge strips give fast vertical parallax without expensive windows.
+   const edgeX=x-side*(w*.5+.06);
+   box(edgeX,Math.min(h*.58,15),z,.08,Math.min(h*.72,24),d*.46,n%2?M.cyan:M.pink);
+  }
+ }
+}
+
+// Cross-street towers at the far ends close the city around the player.
+for(const endZ of [-82,82]){
+ for(let x=-34;x<=34;x+=17){
+  if(Math.abs(x)<8)continue;
+  const n=Math.abs(Math.round(x/17))+(endZ>0?4:0);
+  const h=24+((n*11)%28);
+  addClimbBuilding(x,endZ,14,h,14,n%2?M.glass:M.concrete);
+ }
+}
+
+// Lightweight distant skyline fills gaps behind the climbable city.
+for(let i=0;i<24;i++){
+ const a=(i/24)*Math.PI*2;
+ const r=82+(i%4)*9;
+ const x=Math.cos(a)*r,z=Math.sin(a)*r;
+ const h=32+(i*13)%46;
+ box(x,h*.5,z,12+(i%3)*3,h,12+((i+1)%3)*3,i%2?M.glass:M.concrete);
+}
+
 for(let z=-55;z<60;z+=18){box(-10,.02,z,12,.04,.16,M.cyan);box(8,.02,z,8,.04,.14,M.pink)}
 
 const bank=new THREE.Group();
@@ -510,8 +547,10 @@ function updateBlastGesture(){
 const driftVelocity=new THREE.Vector3();
 const driftTarget=new THREE.Vector3();
 const cinematicDrive=new THREE.Vector3();
-const CINEMATIC_BACK_SPEED=18.0;
-const CINEMATIC_ACCEL=7.5;
+const CINEMATIC_BACK_SPEED=22.0;
+const CINEMATIC_ACCEL=3.15;
+const CINEMATIC_STEER=2.35;
+const cinematicDriveDir=new THREE.Vector3(0,0,1);
 let cinematicDriveActive=false;
 let dashEnergy=0;
 
@@ -541,9 +580,22 @@ function updateHeadHandInertia(dt){
  lastHeadForward.copy(f);
 }
 
+const FIXED_PALM_WIDTH=.082;
 function updateHandVisualProxy(h,side){
  if(!h?.joints){hideHandVisuals(side);return}
  ensureHandVisuals(h,side);
+
+ const wrist=joint(h,"wrist");
+ const indexBase=joint(h,"index-finger-metacarpal");
+ const pinkyBase=joint(h,"pinky-finger-metacarpal");
+ if(!wrist){hideHandVisuals(side);return}
+
+ const wristPos=wpos(wrist);
+ let skeletonScale=1;
+ if(indexBase&&pinkyBase){
+  const trackedWidth=Math.max(.045,wpos(indexBase).distanceTo(wpos(pinkyBase)));
+  skeletonScale=FIXED_PALM_WIDTH/trackedWidth;
+ }
 
  const headF=camera.getWorldDirection(new THREE.Vector3()); headF.y=0;
  if(headF.lengthSq()<.001)headF.set(0,0,-1); else headF.normalize();
@@ -553,8 +605,10 @@ function updateHandVisualProxy(h,side){
  for(const name in h.joints){
   const j=h.joints[name],v=handVisuals[side].get(name);
   if(!v||!j)continue;
+  const raw=wpos(j);
+  const normalized=raw.sub(wristPos).multiplyScalar(skeletonScale).add(wristPos);
   v.visible=true;
-  v.position.copy(wpos(j)).add(offset);
+  v.position.copy(normalized).add(offset);
  }
 }
 
@@ -652,29 +706,34 @@ function updateHandInput(dt){
  }
 
  if(cinematicDriveActive&&cinematicDrive.lengthSq()>.001){
-  cinematicDrive.normalize().multiplyScalar(CINEMATIC_BACK_SPEED);
+  const rawDir=cinematicDrive.normalize();
 
-  // On a wall/roof, keep the movie-speed movement tangent to the active surface.
+  // Steering eases like a camera move: palms redirect the flight path,
+  // but they do not jerk the player one frame at a time.
+  if(cinematicDriveDir.lengthSq()<.001)cinematicDriveDir.copy(rawDir);
+  cinematicDriveDir.lerp(rawDir,1-Math.exp(-CINEMATIC_STEER*dt)).normalize();
+
+  const desired=cinematicDriveDir.clone().multiplyScalar(CINEMATIC_BACK_SPEED);
+
   if(gravityState.mode==="wall"){
-   cinematicDrive.projectOnPlane(gravityState.wallNormal);
-   if(cinematicDrive.lengthSq()<.001)cinematicDrive.copy(WORLD_UP).multiplyScalar(CINEMATIC_BACK_SPEED);
-   else cinematicDrive.normalize().multiplyScalar(CINEMATIC_BACK_SPEED);
+   desired.projectOnPlane(gravityState.wallNormal);
+   if(desired.lengthSq()<.001)desired.copy(WORLD_UP).multiplyScalar(CINEMATIC_BACK_SPEED);
+   else desired.normalize().multiplyScalar(CINEMATIC_BACK_SPEED);
   }else if(gravityState.mode==="roof"||gravityState.mode==="ground"){
-   // Ground/roof stays mostly horizontal unless the player is intentionally airborne.
-   cinematicDrive.y*=.22;
-   if(cinematicDrive.lengthSq()>.001)cinematicDrive.normalize().multiplyScalar(CINEMATIC_BACK_SPEED);
+   desired.y*=.16;
+   if(desired.lengthSq()>.001)desired.normalize().multiplyScalar(CINEMATIC_BACK_SPEED);
   }
 
-  driftVelocity.lerp(cinematicDrive,1-Math.exp(-CINEMATIC_ACCEL*dt));
+  driftVelocity.lerp(desired,1-Math.exp(-CINEMATIC_ACCEL*dt));
  }else{
   const inputActive=driftTarget.lengthSq()>.001;
-  const accel=inputActive?9.5:2.4;
+  const accel=inputActive?7.2:1.25;
   driftVelocity.lerp(driftTarget,1-Math.exp(-accel*dt));
-  if(!inputActive)driftVelocity.multiplyScalar(Math.pow(.94,dt*60));
+  if(!inputActive)driftVelocity.multiplyScalar(Math.pow(.985,dt*60));
  }
 
- // Preserve a movie-like coast instead of dropping speed instantly.
- const maxMovieSpeed=CINEMATIC_BACK_SPEED*1.18;
+ // Long smooth coast instead of a hard stop.
+ const maxMovieSpeed=CINEMATIC_BACK_SPEED*1.10;
  if(driftVelocity.length()>maxMovieSpeed)driftVelocity.setLength(maxMovieSpeed);
  dashEnergy*=Math.pow(.55,dt);
 }
@@ -736,8 +795,8 @@ const button=VRButton.createButton(renderer,{optionalFeatures:["hand-tracking","
 button.classList.add("xrbtn");
 document.body.appendChild(button);
 
-renderer.xr.addEventListener("sessionstart",()=>{status.innerHTML="<b>VR ACTIVE</b><br>Open palms = fixed movie-speed backward propulsion. Hand size/reach does not affect speed. Walls still capture gravity.";});
+renderer.xr.addEventListener("sessionstart",()=>{status.innerHTML="<b>VR ACTIVE</b><br>Cinematic backward flight: palms steer only. Fixed avatar proportions. Dense city surrounds every wall-run.";});
 renderer.xr.addEventListener("sessionend",()=>{status.innerHTML="<b>NEXUS STABLE</b><br>VR ended. Press ENTER VR again.";});
 
 addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
-status.innerHTML="<b>NEXUS CINEMATIC DRIVE READY</b><br>Fixed-speed repulsor movement: palms choose direction, not speed. Fast backward movie drift enabled.";
+status.innerHTML="<b>NEXUS CITY FLIGHT READY</b><br>Smooth 22 m/s backward movie flight, constant hand proportions, and dense surrounding climbable buildings.";
