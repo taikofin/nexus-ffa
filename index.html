@@ -3,29 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<meta name="theme-color" content="#07131d">
-<title>NEXUS FFA — Quest v3</title>
-<link rel="stylesheet" href="./style.css?v=12">
+<meta name="theme-color" content="#061019">
+<title>NEXUS FFA — Quest Stable</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#061019;color:white;font-family:Arial,system-ui,sans-serif}
+canvas{display:block;width:100%;height:100%}
+#status{position:fixed;z-index:5;left:12px;top:12px;padding:8px 10px;border-radius:10px;background:#061019cc;border:1px solid #61f5ff55;font-size:12px;line-height:1.4;pointer-events:none}
+#status b{color:#61f5ff}
+#version{position:fixed;right:10px;bottom:8px;z-index:5;font-size:10px;opacity:.65;pointer-events:none}
+#hud{position:fixed;left:12px;top:74px;z-index:4;font-size:12px;text-shadow:0 2px 6px #000;pointer-events:none}
+.xrbtn{position:fixed!important;left:50%!important;bottom:26px!important;transform:translateX(-50%)!important;width:auto!important;height:auto!important;padding:14px 22px!important;border-radius:999px!important;border:0!important;background:#61f5ff!important;color:#051118!important;font:900 17px Arial!important;opacity:1!important}
+</style>
 </head>
 <body>
-<div id="boot">
-  <div class="logo">NEXUS <span>FFA</span></div>
-  <div class="sub">RUSH // QUEST BUILD V12</div>
-  <div class="entryButtons">
-    <button id="enter">ENTER VR + HANDS</button>
-    <button id="enterSafe" class="secondary">SAFE VR</button>
-  </div>
-  <div class="status" id="status">Loading NEXUS v12…</div>
-  <div class="tiny">Quest 3: enable hand tracking. Right fist = handgun · open palm = sword · finger-gun = sniper. Left thumb + ring pinch moves.</div>
-</div>
-<div id="stage"><div id="hud">
-  <div><b>NEXUS RUSH</b> · <span id="timer">7:00</span></div>
-  <div>CARRY <b id="carry">0</b> · BANK <b id="score">0</b>/30 · <span id="weapon">HANDGUN</span></div>
-  <div id="msg"></div>
-</div>
-<div id="version">NEXUS v12 · HANDS + SAFE VR</div>
-<canvas id="c"></canvas></div>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
-<script src="./game.js?v=12"></script>
+<div id="status"><b>NEXUS STABLE</b><br>Meta-style WebXR boot. Press ENTER VR.</div>
+<div id="hud">BANK <b id="score">0</b>/30 · CARRY <b id="carry">0</b> · <span id="weapon">HANDGUN</span></div>
+<div id="version">NEXUS STABLE r165</div>
+<script type="module" src="./stable.js?v=1"></script>
 </body>
 </html>
