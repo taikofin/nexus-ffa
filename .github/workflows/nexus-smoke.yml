@@ -35,7 +35,7 @@ jobs:
           cp "$SCRIPT" /tmp/nexus-smoke.mjs
           node --check /tmp/nexus-smoke.mjs
 
-      - name: Verify deployed page and script are actually live
+      - name: Verify deployed page and script are live
         shell: bash
         run: |
           set -euo pipefail
@@ -44,7 +44,7 @@ jobs:
           fetch_with_retry () {
             local url="$1"
             local output="$2"
-            for attempt in {1..18}; do
+            for attempt in {1..24}; do
               code="$(curl -L -sS -o "$output" -w "%{http_code}" "$url" || true)"
               if [ "$code" = "200" ]; then
                 echo "LIVE: $url"
@@ -64,4 +64,61 @@ jobs:
           grep -q "type=\"module\"" /tmp/page.html
           grep -q "import \* as THREE" /tmp/game.js
 
-          echo "NEXUS deployment smoke test passed."
+      - name: Install browser test
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Boot NEXUS in a real headless browser
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat >/tmp/nexus-browser-smoke.mjs <<'EOF'
+          import { chromium } from 'playwright';
+
+          const pageName=process.env.PAGE;
+          const runId=process.env.GITHUB_RUN_ID || Date.now();
+          const url=`https://taikofin.github.io/nexus-ffa/${pageName}?browserSmoke=${runId}`;
+
+          const browser=await chromium.launch({
+            headless:true,
+            args:["--enable-webgl","--use-angle=swiftshader"]
+          });
+
+          const page=await browser.newPage({viewport:{width:1280,height:720}});
+          const failures=[];
+
+          page.on("pageerror",err=>failures.push("pageerror: "+err.message));
+          page.on("console",msg=>{
+            if(msg.type()==="error")failures.push("console: "+msg.text());
+          });
+
+          const response=await page.goto(url,{waitUntil:"networkidle",timeout:90000});
+          if(!response || !response.ok())throw new Error("Page HTTP failure: "+(response&&response.status()));
+
+          await page.waitForSelector("canvas",{timeout:30000});
+          await page.waitForSelector("#status",{timeout:30000});
+          await page.waitForSelector("button.xrbtn",{timeout:30000});
+
+          const status=(await page.locator("#status").innerText()).trim();
+          const canvas=await page.locator("canvas").count();
+          const button=await page.locator("button.xrbtn").count();
+
+          if(!canvas)failures.push("renderer canvas missing");
+          if(!button)failures.push("ENTER NEXUS VR button missing");
+          if(/NEXUS ERROR|FILE NOT FOUND|404/i.test(status))failures.push("bad status: "+status);
+
+          if(failures.length)throw new Error(failures.join("\n"));
+
+          console.log("BROWSER BOOT PASS:",url);
+          console.log("STATUS:",status);
+          await browser.close();
+          EOF
+
+          node /tmp/nexus-browser-smoke.mjs
+
+      - name: Smoke test passed
+        run: echo "NEXUS live-file + JavaScript + browser boot checks passed."
