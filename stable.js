@@ -17,6 +17,8 @@ const renderer=new THREE.WebGLRenderer({antialias:false,powerPreference:"high-pe
 renderer.setPixelRatio(Math.min(devicePixelRatio,1.15));
 renderer.setSize(innerWidth,innerHeight);
 renderer.xr.enabled=true;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.0;
 document.body.appendChild(renderer.domElement);
 
 const player=new THREE.Group();
@@ -61,7 +63,7 @@ for(let i=0;i<7;i++){
  const head=new THREE.Mesh(new THREE.SphereGeometry(.31,10,8),M.bot);head.position.y=1.98;g.add(head);
  box(0,1.95,-.29,.34,.1,.08,M.pink,g);
  g.position.set((i%2?1:-1)*(5+(i*3)%13),0,-26+i*8);
- g.userData={hp:100,alive:true,respawn:0,phase:i,shot:.5+i*.2};
+ g.userData={hp:100,alive:true,respawn:0,phase:i,shot:.5+i*.2,knock:new THREE.Vector3()};
  scene.add(g);bots.push(g);
 }
 
@@ -144,6 +146,109 @@ function pulseFingerMuzzle(side,p,d){
  setTimeout(()=>m.visible=false,48);
 }
 
+const shockwaves=[];
+let blastHoldStart=0;
+let blastLatched=false;
+let blastCooldownUntil=0;
+
+function triggerPressureBlast(){
+ const now=performance.now();
+ if(now<blastCooldownUntil)return;
+ blastCooldownUntil=now+3500;
+
+ const origin=camera.getWorldPosition(new THREE.Vector3());
+ origin.y=Math.max(.6,origin.y-.65);
+
+ const colors=[0x9ffcff,0xff8bd7,0xffc783];
+ for(let i=0;i<3;i++){
+  const mat=new THREE.MeshBasicMaterial({
+   color:colors[i],
+   transparent:true,
+   opacity:.26-i*.045,
+   blending:THREE.AdditiveBlending,
+   depthWrite:false,
+   side:THREE.DoubleSide
+  });
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(1,.035,8,48),mat);
+  ring.position.copy(origin);
+  ring.rotation.x=Math.PI/2;
+  ring.scale.setScalar(.35+i*.18);
+  scene.add(ring);
+  shockwaves.push({mesh:ring,age:-i*.075,life:.78,speed:12+i*2.2,start:.35+i*.18});
+ }
+
+ const shellMat=new THREE.MeshBasicMaterial({
+  color:0xb9f8ff,transparent:true,opacity:.10,blending:THREE.AdditiveBlending,
+  depthWrite:false,wireframe:true
+ });
+ const shell=new THREE.Mesh(new THREE.SphereGeometry(1,14,9),shellMat);
+ shell.position.copy(origin);
+ shell.scale.setScalar(.4);
+ scene.add(shell);
+ shockwaves.push({mesh:shell,age:0,life:.62,speed:10,start:.4,shell:true});
+
+ const flash=new THREE.PointLight(0xbdfaff,5.5,14,2);
+ flash.position.copy(origin).add(new THREE.Vector3(0,1,0));
+ scene.add(flash);
+ setTimeout(()=>scene.remove(flash),150);
+
+ renderer.toneMappingExposure=1.45;
+ setTimeout(()=>renderer.toneMappingExposure=1.0,180);
+
+ for(const b of bots){
+  if(!b.userData.alive)continue;
+  const center=b.position.clone().add(new THREE.Vector3(0,1.1,0));
+  const delta=center.sub(origin);
+  const d=delta.length();
+  if(d>11)continue;
+  const force=1-THREE.MathUtils.clamp(d/11,0,1);
+  const damage=d<3.5?140:55+force*50;
+  b.userData.hp-=damage;
+  const push=delta.normalize().multiplyScalar(5+force*10);
+  push.y=.6+force*1.5;
+  b.userData.knock.add(push);
+  if(b.userData.hp<=0)kill(b);
+ }
+ status.innerHTML="<b>PRESSURE BLAST</b><br>Heat-wave shock ring released.";
+}
+
+function updateShockwaves(dt){
+ for(let i=shockwaves.length-1;i>=0;i--){
+  const s=shockwaves[i];
+  s.age+=dt;
+  if(s.age<0)continue;
+  const u=THREE.MathUtils.clamp(s.age/s.life,0,1);
+  const scale=s.start+s.speed*s.age;
+  s.mesh.scale.setScalar(scale);
+  s.mesh.material.opacity=(s.shell?.10:.26)*Math.pow(1-u,1.5);
+  if(u>=1){
+   scene.remove(s.mesh);
+   s.mesh.geometry.dispose();
+   s.mesh.material.dispose();
+   shockwaves.splice(i,1);
+  }
+ }
+}
+
+function updateBlastGesture(){
+ const ld=indexDir(hands.left),rd=indexDir(hands.right);
+ const up=new THREE.Vector3(0,1,0);
+ const bothUp=!!(ld&&rd&&ld.dot(up)>.82&&rd.dot(up)>.82);
+ const now=performance.now();
+
+ if(bothUp){
+  if(!blastHoldStart)blastHoldStart=now;
+  if(!blastLatched&&now-blastHoldStart>170){
+   blastLatched=true;
+   triggerPressureBlast();
+  }
+ }else{
+  blastHoldStart=0;
+  blastLatched=false;
+ }
+ return bothUp;
+}
+
 const driftVelocity=new THREE.Vector3();
 const driftTarget=new THREE.Vector3();
 let dashEnergy=0;
@@ -195,6 +300,7 @@ function updateHandInput(dt){
  updateHeadHandInertia(dt);
  updateHandVisualProxy(hands.left,"left");
  updateHandVisualProxy(hands.right,"right");
+ const blastPose=updateBlastGesture();
 
  for(const side of ["left","right"]){
   const h=hands[side];
@@ -204,7 +310,7 @@ function updateHandInput(dt){
   if(!it||!tt||!d)continue;
   const p=wpos(it);
   const pinch=dist(it,tt)<.026;
-  if(pinch&&!fingerLatch[side]){
+  if(pinch&&!fingerLatch[side]&&!blastPose){
    fingerLatch[side]=true;
    pulseFingerMuzzle(side,p,d);
    shoot(p.clone().addScaledVector(d,.04),d,58);
@@ -271,7 +377,11 @@ function updateControllerInput(dt){
 function updateBots(dt,t){
  const p=camera.getWorldPosition(new THREE.Vector3());
  for(const b of bots){
-  if(!b.userData.alive){b.userData.respawn-=dt;if(b.userData.respawn<=0){b.userData.alive=true;b.visible=true;b.userData.hp=100;b.position.set((Math.random()-.5)*26,0,-20+(Math.random()-.5)*65)}continue}
+  if(b.userData.knock&&b.userData.knock.lengthSq()>.0001){
+   b.position.addScaledVector(b.userData.knock,dt);
+   b.userData.knock.multiplyScalar(Math.pow(.08,dt));
+  }
+  if(!b.userData.alive){b.userData.respawn-=dt;if(b.userData.respawn<=0){b.userData.alive=true;b.visible=true;b.userData.hp=100;b.userData.knock.set(0,0,0);b.position.set((Math.random()-.5)*26,0,-20+(Math.random()-.5)*65)}continue}
   const d=p.clone().sub(b.position);d.y=0;if(d.length()>6)b.position.addScaledVector(d.normalize(),dt*.45);
   b.userData.shot-=dt;if(b.userData.shot<0){b.userData.shot=.9+Math.random()*1.4;const o=b.position.clone().add(new THREE.Vector3(0,1.5,0));tracer(o,p.clone().sub(o).normalize())}
  }
@@ -284,15 +394,15 @@ function updateBank(dt,t){
 const clock=new THREE.Clock();
 renderer.setAnimationLoop(()=>{
  const dt=Math.min(.05,clock.getDelta()),t=clock.elapsedTime;
- updateHandInput(dt);updateControllerInput(dt);updateBots(dt,t);updateBank(dt,t);renderer.render(scene,camera);
+ updateHandInput(dt);updateControllerInput(dt);updateBots(dt,t);updateBank(dt,t);updateShockwaves(dt);renderer.render(scene,camera);
 });
 
 const button=VRButton.createButton(renderer,{optionalFeatures:["hand-tracking","local-floor","bounded-floor"]});
 button.classList.add("xrbtn");
 document.body.appendChild(button);
 
-renderer.xr.addEventListener("sessionstart",()=>{status.innerHTML="<b>VR ACTIVE</b><br>Head-steered drift. Left thumb+ring = move/dash. Both index fingers aim; index+thumb pinch fires.";});
+renderer.xr.addEventListener("sessionstart",()=>{status.innerHTML="<b>VR ACTIVE</b><br>Drift with head steering. Index+thumb fires. Point BOTH index fingers straight up for PRESSURE BLAST.";});
 renderer.xr.addEventListener("sessionend",()=>{status.innerHTML="<b>NEXUS STABLE</b><br>VR ended. Press ENTER VR again.";});
 
 addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
-status.innerHTML="<b>NEXUS DRIFT READY</b><br>Dual finger guns + opposite-direction head inertia on both hands.";
+status.innerHTML="<b>NEXUS HEATWAVE READY</b><br>Dual finger guns + head inertia + two-hands-up pressure blast.";
