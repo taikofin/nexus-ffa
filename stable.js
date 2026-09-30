@@ -53,6 +53,47 @@ function meshBox(x,y,z,sx,sy,sz,mat,parent=scene){
 }
 meshBox(0,-.15,-20,34,.3,90,matRoad);
 
+const ARENA_X=15.3;
+const ARENA_Z_MIN=-62.5;
+const ARENA_Z_MAX=22.5;
+
+// Visible collision rails: low enough to see the city, tall enough to read as a real arena edge.
+meshBox(-16.15,1.0,-20,.35,2.0,90,matCyan);
+meshBox(16.15,1.0,-20,.35,2.0,90,matRed);
+meshBox(0,1.0,23.5,32.0,2.0,.35,matCyan);
+meshBox(0,1.0,-63.5,32.0,2.0,.35,matRed);
+
+// Repeating bright rail caps make the boundary obvious at speed.
+for(let z=-58;z<=18;z+=8){
+ meshBox(-15.72,2.05,z,.12,.18,4.6,matCyan);
+ meshBox(15.72,2.05,z,.12,.18,4.6,matRed);
+}
+
+function enforceArenaBounds(){
+ let hit=false;
+ if(player.position.x<-ARENA_X){
+  player.position.x=-ARENA_X;
+  if(velocity.x<0)velocity.x*=-.18;
+  hit=true;
+ }else if(player.position.x>ARENA_X){
+  player.position.x=ARENA_X;
+  if(velocity.x>0)velocity.x*=-.18;
+  hit=true;
+ }
+ if(player.position.z<ARENA_Z_MIN){
+  player.position.z=ARENA_Z_MIN;
+  if(velocity.z<0)velocity.z*=-.18;
+  hit=true;
+ }else if(player.position.z>ARENA_Z_MAX){
+  player.position.z=ARENA_Z_MAX;
+  if(velocity.z>0)velocity.z*=-.18;
+  hit=true;
+ }
+ if(hit&&!stuntActive){
+  status.innerHTML="<b>ARENA EDGE</b><br>Barrier caught you — steer back toward the lane.";
+ }
+}
+
 // Intentionally tiny boot scene: enough depth and scale to verify VR without stalling first frame.
 for(const side of [-1,1]){
  for(let i=0;i<6;i++){
@@ -90,6 +131,32 @@ const handDots={left:new Map(),right:new Map()};
 const jointGeo=new THREE.SphereGeometry(.012,6,4);
 const jointMatL=new THREE.MeshBasicMaterial({color:0xff6aa7});
 const jointMatR=new THREE.MeshBasicMaterial({color:0x68f6ff});
+
+const handBones=[
+ ["wrist","thumb-metacarpal"],["thumb-metacarpal","thumb-phalanx-proximal"],["thumb-phalanx-proximal","thumb-phalanx-distal"],["thumb-phalanx-distal","thumb-tip"],
+ ["wrist","index-finger-metacarpal"],["index-finger-metacarpal","index-finger-phalanx-proximal"],["index-finger-phalanx-proximal","index-finger-phalanx-intermediate"],["index-finger-phalanx-intermediate","index-finger-phalanx-distal"],["index-finger-phalanx-distal","index-finger-tip"],
+ ["wrist","middle-finger-metacarpal"],["middle-finger-metacarpal","middle-finger-phalanx-proximal"],["middle-finger-phalanx-proximal","middle-finger-phalanx-intermediate"],["middle-finger-phalanx-intermediate","middle-finger-phalanx-distal"],["middle-finger-phalanx-distal","middle-finger-tip"],
+ ["wrist","ring-finger-metacarpal"],["ring-finger-metacarpal","ring-finger-phalanx-proximal"],["ring-finger-phalanx-proximal","ring-finger-phalanx-intermediate"],["ring-finger-phalanx-intermediate","ring-finger-phalanx-distal"],["ring-finger-phalanx-distal","ring-finger-tip"],
+ ["wrist","pinky-finger-metacarpal"],["pinky-finger-metacarpal","pinky-finger-phalanx-proximal"],["pinky-finger-phalanx-proximal","pinky-finger-phalanx-intermediate"],["pinky-finger-phalanx-intermediate","pinky-finger-phalanx-distal"],["pinky-finger-phalanx-distal","pinky-finger-tip"],
+ ["index-finger-metacarpal","middle-finger-metacarpal"],["middle-finger-metacarpal","ring-finger-metacarpal"],["ring-finger-metacarpal","pinky-finger-metacarpal"]
+];
+
+function makeHandSkeleton(color){
+ const arr=new Float32Array(handBones.length*2*3);
+ const geo=new THREE.BufferGeometry();
+ geo.setAttribute("position",new THREE.BufferAttribute(arr,3));
+ const mat=new THREE.LineBasicMaterial({
+  color,transparent:true,opacity:.92,depthWrite:false
+ });
+ const lines=new THREE.LineSegments(geo,mat);
+ lines.frustumCulled=false;
+ scene.add(lines);
+ return {lines,geo,arr};
+}
+const handSkeletons={
+ left:makeHandSkeleton(0xff6aa7),
+ right:makeHandSkeleton(0x68f6ff)
+};
 
 for(let i=0;i<2;i++){
  const h=renderer.xr.getHand(i);
@@ -151,14 +218,21 @@ function wristPos(h){
  return w?wpos(w):null;
 }
 function updateHandDots(side,h){
+ const sk=handSkeletons[side];
  if(!h||!h.joints){
   for(const d of handDots[side].values())d.visible=false;
+  sk.lines.visible=false;
   return;
  }
+
+ sk.lines.visible=true;
+
+ // Keep tiny joint markers, but make the connected hand silhouette dominant.
  for(const name in h.joints){
   let d=handDots[side].get(name);
   if(!d){
    d=new THREE.Mesh(jointGeo,side==="left"?jointMatL:jointMatR);
+   d.scale.setScalar(name.includes("tip")?.85:.58);
    scene.add(d);
    handDots[side].set(name,d);
   }
@@ -166,6 +240,23 @@ function updateHandDots(side,h){
   d.visible=!!j;
   if(j)d.position.copy(wpos(j));
  }
+
+ for(let i=0;i<handBones.length;i++){
+  const a=joint(h,handBones[i][0]);
+  const b=joint(h,handBones[i][1]);
+  const k=i*6;
+
+  if(a&&b){
+   const ap=wpos(a),bp=wpos(b);
+   sk.arr[k]=ap.x;sk.arr[k+1]=ap.y;sk.arr[k+2]=ap.z;
+   sk.arr[k+3]=bp.x;sk.arr[k+4]=bp.y;sk.arr[k+5]=bp.z;
+  }else{
+   // Collapse missing segments instead of leaving stale bones in the air.
+   sk.arr[k]=sk.arr[k+1]=sk.arr[k+2]=0;
+   sk.arr[k+3]=sk.arr[k+4]=sk.arr[k+5]=0;
+  }
+ }
+ sk.geo.attributes.position.needsUpdate=true;
 }
 
 const ray=new THREE.Raycaster();
@@ -337,6 +428,9 @@ scene.add(wheelVisual);
 
 let wheelTurn=0;
 let wheelActive=false;
+let driveYaw=0;
+let driveYawInitialized=false;
+let centerAssist=0;
 
 let stuntActive=false;
 let stuntMode="back";
@@ -420,6 +514,12 @@ function updateStunt(dt,poses){
   stuntActive=false;
   cameraFX.rotation.set(0,0,0);
   cameraFX.position.set(0,0,0);
+  const fwd=camera.getWorldDirection(new THREE.Vector3());fwd.y=0;
+  if(fwd.lengthSq()>.001){
+   fwd.normalize();
+   driveYaw=Math.atan2(-fwd.x,-fwd.z);
+   driveYawInitialized=true;
+  }
   status.innerHTML="<b>NEXUS ACTIVE</b><br>Back on street control.";
  }
 }
@@ -463,13 +563,38 @@ function updateInput(dt){
    const targetTurn=THREE.MathUtils.clamp(signed/.72,-1,1);
    wheelTurn=THREE.MathUtils.lerp(wheelTurn,targetTurn,1-Math.exp(-dt*10));
 
-   const steerAngle=-wheelTurn*.95;
-   const moveDir=headF.clone().applyAxisAngle(WORLD_UP,steerAngle).normalize();
+   if(!driveYawInitialized){
+    driveYaw=Math.atan2(-headF.x,-headF.z);
+    driveYawInitialized=true;
+   }
+
+   // Steering wheel now turns a persistent body/drive heading, like a vehicle.
+   // This stops movement from instantly following every tiny head movement.
+   const turnRate=-wheelTurn*1.72;
+   driveYaw+=turnRate*dt;
+
+   // Magnetic center: if the wheel is near center, gently pull the drive heading back
+   // under the center of the player's current view.
+   const headYaw=Math.atan2(-headF.x,-headF.z);
+   let yawError=headYaw-driveYaw;
+   yawError=Math.atan2(Math.sin(yawError),Math.cos(yawError));
+   const centerStrength=(1-Math.min(1,Math.abs(wheelTurn)))*1.65;
+   driveYaw+=yawError*centerStrength*dt;
+
+   const moveDir=new THREE.Vector3(-Math.sin(driveYaw),0,-Math.cos(driveYaw)).normalize();
    const targetVelocity=moveDir.multiplyScalar(8.2);
 
-   // Wheel gives a smooth car-like arc instead of snapping direction.
+   // Smooth car-like arc rather than lateral drift.
    velocity.x=THREE.MathUtils.lerp(velocity.x,targetVelocity.x,1-Math.exp(-dt*3.8));
    velocity.z=THREE.MathUtils.lerp(velocity.z,targetVelocity.z,1-Math.exp(-dt*3.8));
+
+   // Small cinematic center cue: the camera leans/yaws with the wheel, then returns.
+   // Head tracking still works normally; this is intentionally subtle.
+   centerAssist=THREE.MathUtils.lerp(centerAssist,wheelTurn,1-Math.exp(-dt*8));
+   if(!stuntActive){
+    cameraFX.rotation.z=THREE.MathUtils.lerp(cameraFX.rotation.z,-centerAssist*.075,1-Math.exp(-dt*7));
+    cameraFX.rotation.y=THREE.MathUtils.lerp(cameraFX.rotation.y,-centerAssist*.045,1-Math.exp(-dt*7));
+   }
 
    // Ground-driving mode: the wheel only steers on the street.
    if(!stuntActive){
@@ -491,6 +616,11 @@ function updateInput(dt){
  if(!wheelActive){
   wheelVisual.visible=false;
   wheelTurn=THREE.MathUtils.lerp(wheelTurn,0,1-Math.exp(-dt*7));
+  centerAssist=THREE.MathUtils.lerp(centerAssist,0,1-Math.exp(-dt*6));
+  if(!stuntActive){
+   cameraFX.rotation.z=THREE.MathUtils.lerp(cameraFX.rotation.z,0,1-Math.exp(-dt*6));
+   cameraFX.rotation.y=THREE.MathUtils.lerp(cameraFX.rotation.y,0,1-Math.exp(-dt*6));
+  }
  }
 
  // Stunt gestures stay separate from steering-wheel grip.
@@ -572,6 +702,7 @@ renderer.setAnimationLoop(()=>{
  velocity.z*=Math.pow(.992,dt*60);
  if(stuntActive)velocity.y*=Math.pow(.997,dt*60);
 
+ enforceArenaBounds();
  updateBots(dt);
  updateBullets(dt);
  updateSpeedFx();
@@ -589,7 +720,7 @@ async function enterVR(){
    optionalFeatures:["hand-tracking"]
   });
   await renderer.xr.setSession(session);
-  status.innerHTML="<b>NEXUS ACTIVE</b><br>Street-grounded steering + travel-time bullets ready.";
+  status.innerHTML="<b>NEXUS ACTIVE</b><br>Centered wheel steering, connected hands, barriers, and travel-time bullets ready.";
  }catch(err){
   status.innerHTML="<b>VR START FAILED</b><br>"+String(err&&err.message?err.message:err);
  }
@@ -607,7 +738,7 @@ renderer.xr.addEventListener("sessionstart",()=>{
 renderer.xr.addEventListener("sessionend",()=>{
  button.style.display="";
  cameraFX.rotation.set(0,0,0);
- status.innerHTML="<b>NEXUS v20</b><br>VR ended. Enter again when ready.";
+ status.innerHTML="<b>NEXUS v21</b><br>VR ended. Enter again when ready.";
 });
 
 addEventListener("resize",()=>{
@@ -616,4 +747,4 @@ addEventListener("resize",()=>{
  renderer.setSize(innerWidth,innerHeight);
 });
 
-status.innerHTML="<b>NEXUS v20</b><br>Ground-driving active: steering wheel keeps you on the street. Stunts can leave the floor, then land back on it.";
+status.innerHTML="<b>NEXUS v21</b><br>Magnetic steering center + hard neon arena barriers + connected hand skeletons.";
