@@ -1,0 +1,14 @@
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#061019;color:#fff;font-family:Arial,system-ui,sans-serif;touch-action:none}
+canvas{display:block;width:100%;height:100%}
+#boot{position:fixed;z-index:10;left:50%;top:50%;transform:translate(-50%,-50%);width:min(92vw,520px);padding:24px;border-radius:20px;background:rgba(4,15,24,.78);border:1px solid rgba(98,246,255,.42);text-align:center;backdrop-filter:blur(10px)}
+.logo{font-size:34px;letter-spacing:.16em;font-weight:900}.logo span{color:#61f5ff}
+.sub{margin:6px 0 18px;color:#ff5bc9;font-size:12px;letter-spacing:.22em;font-weight:800}
+button{border:0;border-radius:999px;padding:14px 22px;font-size:17px;font-weight:900;background:#61f5ff;color:#051118;min-width:160px;box-shadow:0 0 24px rgba(97,245,255,.25)}
+.status{margin-top:12px;font-size:13px;line-height:1.4;color:#d6e8ef}
+.tiny{margin-top:12px;font-size:11px;line-height:1.45;opacity:.72}
+#hud{position:fixed;z-index:5;top:14px;left:14px;pointer-events:none;text-shadow:0 2px 8px #000;font-size:14px;line-height:1.5;letter-spacing:.02em}
+#hud b{color:#fff}
+#msg{color:#61f5ff;font-weight:900;min-height:22px}
+#version{position:fixed;right:12px;bottom:9px;z-index:6;font-size:10px;opacity:.5;pointer-events:none}
+body.xr #boot{display:none}
