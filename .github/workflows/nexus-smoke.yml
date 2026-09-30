@@ -76,7 +76,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat >/tmp/nexus-browser-smoke.mjs <<'EOF'
+          cat >nexus-browser-smoke.mjs <<'EOF'
           import { chromium } from 'playwright';
 
           const pageName=process.env.PAGE;
@@ -118,7 +118,8 @@ jobs:
           await browser.close();
           EOF
 
-          node /tmp/nexus-browser-smoke.mjs
+          node nexus-browser-smoke.mjs
+          rm -f nexus-browser-smoke.mjs
 
       - name: Smoke test passed
         run: echo "NEXUS live-file + JavaScript + browser boot checks passed."
