@@ -393,11 +393,37 @@ const rightLeg=cyl(.17,.34,-.025,.105,.78,mats.fabric,bodyRoot,8);
 leftLeg.rotation.x=-.08;rightLeg.rotation.x=-.08;
 const leftShoe=box(-.17,.035,-.17,.19,.11,.34,mats.botDark,bodyRoot);
 const rightShoe=box(.17,.035,-.17,.19,.11,.34,mats.botDark,bodyRoot);
-const sleeveGeo=new THREE.CylinderGeometry(.07,.095,1,8);
-const leftSleeve=new THREE.Mesh(sleeveGeo,mats.fabric);scene.add(leftSleeve);
-const rightSleeve=new THREE.Mesh(sleeveGeo,mats.fabric);scene.add(rightSleeve);
+const upperArmGeo=new THREE.CylinderGeometry(.085,.105,1,8);
+const foreArmGeo=new THREE.CylinderGeometry(.065,.09,1,8);
+const leftSleeve=new THREE.Mesh(upperArmGeo,mats.fabric);scene.add(leftSleeve);
+const rightSleeve=new THREE.Mesh(upperArmGeo,mats.fabric);scene.add(rightSleeve);
+const leftForearm=new THREE.Mesh(foreArmGeo,mats.fabric);scene.add(leftForearm);
+const rightForearm=new THREE.Mesh(foreArmGeo,mats.fabric);scene.add(rightForearm);
+const elbowGeo=new THREE.SphereGeometry(.095,8,6);
+const leftElbow=new THREE.Mesh(elbowGeo,mats.fabric);scene.add(leftElbow);
+const rightElbow=new THREE.Mesh(elbowGeo,mats.fabric);scene.add(rightElbow);
+
 const shoulderL=new THREE.Vector3(),shoulderR=new THREE.Vector3();
 const sleeveQuat=new THREE.Quaternion();
+
+const armPhysics={
+  left:{
+    initialized:false,
+    lastWrist:new THREE.Vector3(),
+    elbow:new THREE.Vector3(),
+    elbowVel:new THREE.Vector3(),
+    speed:0,
+    speed01:0
+  },
+  right:{
+    initialized:false,
+    lastWrist:new THREE.Vector3(),
+    elbow:new THREE.Vector3(),
+    elbowVel:new THREE.Vector3(),
+    speed:0,
+    speed01:0
+  }
+};
 
 function setLimb(meshObj,a,b){
   const d=b.clone().sub(a),len=d.length();
@@ -407,6 +433,71 @@ function setLimb(meshObj,a,b){
   meshObj.scale.set(1,len,1);
   sleeveQuat.setFromUnitVectors(UP,d.normalize());
   meshObj.quaternion.copy(sleeveQuat);
+}
+
+function hideArm(side){
+  const upper=side==="left"?leftSleeve:rightSleeve;
+  const lower=side==="left"?leftForearm:rightForearm;
+  const elbowMesh=side==="left"?leftElbow:rightElbow;
+  upper.visible=false;lower.visible=false;elbowMesh.visible=false;
+  armPhysics[side].initialized=false;
+}
+
+function updatePhysicalArm(side,shoulder,wrist,sideAxis,dt){
+  const s=armPhysics[side];
+  const upper=side==="left"?leftSleeve:rightSleeve;
+  const lower=side==="left"?leftForearm:rightForearm;
+  const elbowMesh=side==="left"?leftElbow:rightElbow;
+  const sideSign=side==="left"?-1:1;
+
+  if(!s.initialized){
+    s.initialized=true;
+    s.lastWrist.copy(wrist);
+    s.speed=0;s.speed01=0;s.elbowVel.set(0,0,0);
+    s.elbow.copy(shoulder).lerp(wrist,.5);
+  }
+
+  const frameSpeed=wrist.distanceTo(s.lastWrist)/Math.max(.008,dt);
+  s.speed=THREE.MathUtils.lerp(s.speed,Math.min(frameSpeed,7),1-Math.exp(-dt*10));
+  s.speed01=THREE.MathUtils.clamp((s.speed-.10)/3.2,0,1);
+  s.lastWrist.copy(wrist);
+
+  const armVector=wrist.clone().sub(shoulder);
+  const reach=armVector.length();
+  if(reach<.08){hideArm(side);return}
+
+  // Slow motion looks heavy and loose: more elbow drop/bend and slower recovery.
+  // Fast motion braces the arm: elbow straightens and the spring gets much stiffer.
+  const sag=THREE.MathUtils.lerp(.145,.025,s.speed01);
+  const outward=THREE.MathUtils.lerp(.105,.030,s.speed01);
+  const along=THREE.MathUtils.lerp(.46,.50,s.speed01);
+  const desiredElbow=shoulder.clone()
+    .addScaledVector(armVector,along)
+    .addScaledVector(sideAxis,sideSign*outward)
+    .add(new THREE.Vector3(0,-sag,0));
+
+  const spring=THREE.MathUtils.lerp(34,150,s.speed01);
+  const damping=THREE.MathUtils.lerp(9.5,23,s.speed01);
+  const accel=desiredElbow.clone().sub(s.elbow).multiplyScalar(spring)
+    .addScaledVector(s.elbowVel,-damping);
+  s.elbowVel.addScaledVector(accel,dt);
+  s.elbowVel.clampLength(0,4.5);
+  s.elbow.addScaledVector(s.elbowVel,dt);
+
+  // Keep the simulated elbow inside a plausible reach envelope.
+  const fromShoulder=s.elbow.clone().sub(shoulder);
+  const maxElbow=Math.max(.20,Math.min(.48,reach*.72));
+  if(fromShoulder.length()>maxElbow)s.elbow.copy(shoulder).add(fromShoulder.setLength(maxElbow));
+
+  setLimb(upper,shoulder,s.elbow);
+  setLimb(lower,s.elbow,wrist);
+  elbowMesh.visible=true;
+  elbowMesh.position.copy(s.elbow);
+
+  // Small scale change sells muscle bracing without extra bones/physics cost.
+  const brace=THREE.MathUtils.lerp(1.03,.94,s.speed01);
+  upper.scale.x=upper.scale.z=brace;
+  lower.scale.x=lower.scale.z=THREE.MathUtils.lerp(1.04,.96,s.speed01);
 }
 
 function updateBodyPresence(dt,t){
@@ -422,8 +513,8 @@ function updateBodyPresence(dt,t){
   shoulderL.copy(shoulderBase).addScaledVector(right,-.22);
   shoulderR.copy(shoulderBase).addScaledVector(right,.22);
   const lw=joint(hands.left,"wrist"),rw=joint(hands.right,"wrist");
-  if(lw)setLimb(leftSleeve,shoulderL,worldPos(lw,new THREE.Vector3())); else leftSleeve.visible=false;
-  if(rw)setLimb(rightSleeve,shoulderR,worldPos(rw,new THREE.Vector3())); else rightSleeve.visible=false;
+  if(lw)updatePhysicalArm("left",shoulderL,worldPos(lw,new THREE.Vector3()),right,dt); else hideArm("left");
+  if(rw)updatePhysicalArm("right",shoulderR,worldPos(rw,new THREE.Vector3()),right,dt); else hideArm("right");
 
   const rightAxis=new THREE.Vector3(1,0,0).applyAxisAngle(UP,rig.rotation.y);
   const forwardAxis=new THREE.Vector3(0,0,-1).applyAxisAngle(UP,rig.rotation.y);
@@ -618,7 +709,7 @@ function updateWeaponVisual(rightHand,dt,t){
   if(!origin && performance.now()-lastStableRight.time<240){
     origin=lastStableRight.pos.clone();dir=lastStableRight.dir.clone();quat=lastStableRight.quat.clone();
   }
-  if(!origin||!dir){weaponRoot.visible=false;aimAssist.target=null;return}
+  if(!origin||!dir){weaponRoot.visible=false;weaponRoot.userData.physicalInit=false;aimAssist.target=null;return}
 
   if(weapon==="HANDGUN"){
     dir=computeAssistedAim(origin,dir,dt,true);
@@ -628,8 +719,19 @@ function updateWeaponVisual(rightHand,dt,t){
 
   weaponRoot.visible=true;
   weaponRecoil*=Math.pow(.055,dt);
-  weaponRoot.position.copy(origin).addScaledVector(dir,.11-weaponRecoil);
-  weaponRoot.quaternion.setFromUnitVectors(FWD,dir.clone().normalize());
+  const desiredWeaponPos=origin.clone().addScaledVector(dir,.11-weaponRecoil);
+  const handSpeed01=armPhysics.right.speed01||0;
+  const followRate=THREE.MathUtils.lerp(7.0,24.0,handSpeed01);
+  const posAlpha=1-Math.exp(-followRate*dt);
+  if(!weaponRoot.userData.physicalInit){
+    weaponRoot.position.copy(desiredWeaponPos);
+    weaponRoot.userData.physicalInit=true;
+  }else{
+    weaponRoot.position.lerp(desiredWeaponPos,posAlpha);
+  }
+  const desiredWeaponQ=new THREE.Quaternion().setFromUnitVectors(FWD,dir.clone().normalize());
+  const rotRate=THREE.MathUtils.lerp(8.5,28.0,handSpeed01);
+  weaponRoot.quaternion.slerp(desiredWeaponQ,1-Math.exp(-rotRate*dt));
   if(weapon==="SWORD")flourish.rotation.z=t*5.2;
   const camP=camera.getWorldPosition(new THREE.Vector3());
   if(camP.distanceTo(weaponRoot.position)<.17)weaponRoot.visible=false;
@@ -828,6 +930,6 @@ async function enterVR(){
 }
 document.getElementById("enter").addEventListener("click",enterVR);
 
-status.textContent="NEXUS v6 loaded — physical first-person body + recoil + Max Payne-style gun feel.";
+status.textContent="NEXUS v7 loaded — speed-reactive weighted arms + physical weapon inertia.";
 addEventListener("resize",resizeFlatStage);
 })();
