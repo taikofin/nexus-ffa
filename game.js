@@ -362,6 +362,83 @@ let echoes=[];
 let lastStableRight={time:0,pos:new THREE.Vector3(),quat:new THREE.Quaternion(),dir:new THREE.Vector3(0,0,-1)};
 const ray=new THREE.Raycaster();
 
+const aimAssist={
+  target:null,
+  direction:new THREE.Vector3(0,0,-1),
+  strength:0,
+  targetChangedAt:0
+};
+const AIM_ACQUIRE_GUN_DOT=Math.cos(THREE.MathUtils.degToRad(46));
+const AIM_ACQUIRE_VIEW_DOT=Math.cos(THREE.MathUtils.degToRad(52));
+const AIM_RETAIN_GUN_DOT=Math.cos(THREE.MathUtils.degToRad(58));
+const AIM_RETAIN_VIEW_DOT=Math.cos(THREE.MathUtils.degToRad(64));
+
+function aimPoint(bot){
+  return bot.position.clone().add(new THREE.Vector3(0,1.42,0));
+}
+function targetMetrics(bot,origin,rawDir,camP,camF){
+  if(!bot||!bot.userData.alive)return null;
+  const p=aimPoint(bot),toGun=p.clone().sub(origin),distance=toGun.length();
+  if(distance>.001)toGun.multiplyScalar(1/distance);
+  const toView=p.clone().sub(camP).normalize();
+  return {p,toGun,toView,distance,gunDot:rawDir.dot(toGun),viewDot:camF.dot(toView)};
+}
+function chooseAimTarget(origin,rawDir){
+  const camP=camera.getWorldPosition(new THREE.Vector3());
+  const camF=camera.getWorldDirection(new THREE.Vector3()).normalize();
+  const current=targetMetrics(aimAssist.target,origin,rawDir,camP,camF);
+  if(current&&current.distance<44&&current.gunDot>AIM_RETAIN_GUN_DOT&&current.viewDot>AIM_RETAIN_VIEW_DOT){
+    return {bot:aimAssist.target,metrics:current,camP,camF};
+  }
+
+  let best=null,bestScore=-Infinity;
+  for(const bot of bots){
+    const m=targetMetrics(bot,origin,rawDir,camP,camF);
+    if(!m||m.distance>40||m.gunDot<AIM_ACQUIRE_GUN_DOT||m.viewDot<AIM_ACQUIRE_VIEW_DOT)continue;
+    const score=m.gunDot*2.4+m.viewDot*1.65-(m.distance/40)*.32;
+    if(score>bestScore){bestScore=score;best={bot,metrics:m,camP,camF}}
+  }
+  if(best&&best.bot!==aimAssist.target)aimAssist.targetChangedAt=performance.now();
+  aimAssist.target=best?best.bot:null;
+  return best;
+}
+function computeAssistedAim(origin,rawDir,dt,nudgeCamera){
+  rawDir=rawDir.clone().normalize();
+  const picked=chooseAimTarget(origin,rawDir);
+  if(!picked){
+    aimAssist.strength=THREE.MathUtils.lerp(aimAssist.strength,0,Math.min(1,dt*8));
+    aimAssist.direction.copy(rawDir);
+    return rawDir;
+  }
+
+  const m=picked.metrics;
+  const gunFit=THREE.MathUtils.clamp((m.gunDot-AIM_ACQUIRE_GUN_DOT)/(1-AIM_ACQUIRE_GUN_DOT),0,1);
+  const viewFit=THREE.MathUtils.clamp((m.viewDot-AIM_ACQUIRE_VIEW_DOT)/(1-AIM_ACQUIRE_VIEW_DOT),0,1);
+  const distanceFit=1-THREE.MathUtils.clamp((m.distance-7)/34,0,1);
+  const strength=THREE.MathUtils.clamp(.28+gunFit*.34+viewFit*.12+distanceFit*.11,.28,.74);
+  aimAssist.strength=THREE.MathUtils.lerp(aimAssist.strength,strength,Math.min(1,dt*11));
+
+  const desired=rawDir.clone().lerp(m.toGun,aimAssist.strength).normalize();
+  aimAssist.direction.copy(desired);
+
+  if(nudgeCamera){
+    const camHorizontal=picked.camF.clone();camHorizontal.y=0;
+    const targetHorizontal=m.p.clone().sub(picked.camP);targetHorizontal.y=0;
+    if(camHorizontal.lengthSq()>.001&&targetHorizontal.lengthSq()>.001){
+      camHorizontal.normalize();targetHorizontal.normalize();
+      const crossY=new THREE.Vector3().crossVectors(camHorizontal,targetHorizontal).y;
+      const yawError=Math.atan2(crossY,THREE.MathUtils.clamp(camHorizontal.dot(targetHorizontal),-1,1));
+      const deadZone=THREE.MathUtils.degToRad(1.7);
+      if(Math.abs(yawError)>deadZone){
+        const response=(Math.abs(yawError)-deadZone)*aimAssist.strength*dt*1.28;
+        const maxStep=dt*.38;
+        rig.rotation.y+=THREE.MathUtils.clamp(Math.sign(yawError)*response,-maxStep,maxStep);
+      }
+    }
+  }
+  return desired;
+}
+
 function flash(s,t=.9){msgEl.textContent=s;msgTimer=t}
 function setWeapon(w){if(w===weapon)return;weapon=w;weaponEl.textContent=w;flash(w)}
 function joint(hand,name){return hand&&hand.joints?hand.joints[name]:null}
@@ -454,7 +531,14 @@ function updateWeaponVisual(rightHand,dt,t){
   if(!origin && performance.now()-lastStableRight.time<240){
     origin=lastStableRight.pos.clone();dir=lastStableRight.dir.clone();quat=lastStableRight.quat.clone();
   }
-  if(!origin||!dir){weaponRoot.visible=false;return}
+  if(!origin||!dir){weaponRoot.visible=false;aimAssist.target=null;return}
+
+  if(weapon==="HANDGUN"){
+    dir=computeAssistedAim(origin,dir,dt,true);
+  }else{
+    aimAssist.target=null;aimAssist.strength=0;
+  }
+
   weaponRoot.visible=true;
   weaponRoot.position.copy(origin).addScaledVector(dir,.11);
   weaponRoot.quaternion.setFromUnitVectors(FWD,dir.clone().normalize());
@@ -476,7 +560,14 @@ function updateHandsAndControls(dt,t){
       else if(c!==gesture&&now-candidateAt>190){gesture=c;setWeapon(c)}
       if(weapon==="HANDGUN"&&tt){
         const pinch=distance(tt,it)<.026;
-        if(pinch&&!handgunLatch){handgunLatch=true;const d=wristAim(R)||pointDirection(R);if(d)shoot(wp.clone().addScaledVector(d,.16),d,52,false)}
+        if(pinch&&!handgunLatch){
+          handgunLatch=true;
+          const raw=wristAim(R)||pointDirection(R);
+          if(raw){
+            const d=computeAssistedAim(wp,raw,Math.max(.008,dt),false);
+            shoot(wp.clone().addScaledVector(d,.16),d,52,false);
+          }
+        }
         if(!pinch)handgunLatch=false;
       }
       if(weapon==="SNIPER"&&tt){
@@ -548,7 +639,12 @@ function updateBots(dt,t){
     const d=to.length();
     if(d>7)b.position.addScaledVector(to.normalize(),dt*(.52+(b.userData.phase%3)*.08));
     b.rotation.y=Math.atan2(to.x,to.z);
-    const halo=b.children[b.children.length-1];if(halo)halo.rotation.z=t*2.2+b.userData.phase;
+    const halo=b.children[b.children.length-1];
+    if(halo){
+      halo.rotation.z=t*2.2+b.userData.phase;
+      const lockScale=(weapon==="HANDGUN"&&aimAssist.target===b)?1.34:1;
+      halo.scale.lerp(new THREE.Vector3(lockScale,lockScale,lockScale),Math.min(1,dt*10));
+    }
     b.userData.shot-=dt;
     if(b.userData.shot<=0&&d<36){
       b.userData.shot=.85+Math.random()*1.35;
@@ -642,7 +738,7 @@ async function enterVR(){
 }
 document.getElementById("enter").addEventListener("click",enterVR);
 
-status.textContent="NEXUS v3 loaded — city + visible hands + visible weapons ready.";
+status.textContent="NEXUS v4 loaded — magnetic handgun aim + camera nudge active.";
 addEventListener("resize",()=>{
   camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);
 });
