@@ -1,0 +1,58 @@
+name: A13 Map Finish Patch 2
+
+on:
+  push:
+    branches: [iwsdk-migration]
+    paths:
+      - ".github/workflows/a13-map-finish-2.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch-map:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout migration branch
+        uses: actions/checkout@v4
+        with:
+          ref: iwsdk-migration
+          fetch-depth: 0
+
+      - name: Apply A13 map finish patch
+        shell: bash
+        run: |
+          from pathlib import Path
+          
+          p = Path("iwsdk/src/index.ts")
+          s = p.read_text()
+          
+          s = s.replace("const BUILD = 'iwsdk-a12-quest-reverse-angle-fix';", "const BUILD = 'iwsdk-a13-map-finish-pass';")
+          s = s.replace("root.name = 'NEXUS_HERO_HALL_A11';", "root.name = 'NEXUS_HERO_HALL_A13';")
+          
+          marker = "\\n\\nfunction addAuthoredGraffiti(root: THREE.Group, maxAniso: number) {"
+          assert marker in s, "graffiti insertion marker missing"
+          fn = "function addMapFinishPass(\n  root: THREE.Group,\n  concreteWall: THREE.Material,\n  woodDark: THREE.Material,\n  steel: THREE.Material,\n) {\n  const shutterMat = new THREE.MeshStandardMaterial({\n    color: 0x55595b, roughness: .63, metalness: .58, envMapIntensity: .30\n  });\n  const frameMat = new THREE.MeshStandardMaterial({\n    color: 0x292d2f, roughness: .72, metalness: .46, envMapIntensity: .22\n  });\n  const rustMat = new THREE.MeshStandardMaterial({\n    color: 0x5e493b, roughness: .88, metalness: .34, envMapIntensity: .18\n  });\n  const bagMat = new THREE.MeshStandardMaterial({\n    color: 0x17191a, roughness: .96, metalness: 0, envMapIntensity: .08\n  });\n\n  // Far loading bay: a real destination instead of a flat cap.\n  box(root,[2.72,2.18,.055],[.56,1.14,-9.918],shutterMat);\n  for(let i=0;i<11;i++) box(root,[2.68,.016,.026],[.56,.22+i*.18,-9.882],frameMat);\n  box(root,[.12,2.36,.15],[-.84,1.18,-9.87],frameMat);\n  box(root,[.12,2.36,.15],[1.96,1.18,-9.87],frameMat);\n  box(root,[2.92,.14,.16],[.56,2.34,-9.87],frameMat);\n\n  // Offset personnel door breaks the centered/symmetrical end wall.\n  box(root,[.92,2.02,.050],[-2.16,1.05,-9.902],woodDark);\n  box(root,[1.04,.09,.11],[-2.16,2.10,-9.84],steel);\n  box(root,[.08,2.10,.11],[-2.66,1.05,-9.84],steel);\n  box(root,[.08,2.10,.11],[-1.66,1.05,-9.84],steel);\n  const handle = new THREE.Mesh(new THREE.CylinderGeometry(.018,.018,.16,8),steel);\n  handle.rotation.x=Math.PI/2;\n  handle.position.set(-1.83,1.03,-9.79);\n  handle.castShadow=true;\n  root.add(handle);\n\n  // Left maintenance cage creates a side destination and kills the bowling-alley read.\n  const cagePosts: Array<[number,number]> = [\n    [-2.98,-4.52],[-2.02,-4.52],[-2.98,-6.28],[-2.02,-6.28]\n  ];\n  for(const [x,z] of cagePosts) box(root,[.055,2.24,.055],[x,1.12,z],steel);\n  for(const y of [.72,1.42,2.20]){\n    box(root,[.055,.045,1.76],[-2.98,y,-5.40],steel);\n    box(root,[.055,.045,1.76],[-2.02,y,-5.40],steel);\n  }\n  for(const z of [-4.52,-6.28]){\n    box(root,[.96,.045,.055],[-2.50,2.20,z],steel);\n    box(root,[.96,.045,.055],[-2.50,.72,z],steel);\n  }\n  box(root,[.86,.065,.52],[-2.50,.58,-5.72],woodDark);\n  box(root,[.86,.065,.52],[-2.50,1.14,-5.72],woodDark);\n  box(root,[.10,1.18,.10],[-2.86,.63,-5.72],frameMat);\n  box(root,[.10,1.18,.10],[-2.14,.63,-5.72],frameMat);\n\n  // Pallet and scrap lumber give readable real-world scale.\n  for(let i=0;i<5;i++){\n    box(root,[1.08,.060,.13],[-2.35,.10+i*.065,-3.55+i*.035],woodDark,[0,.11+(i-2)*.008,0]);\n  }\n  for(const x of [-2.76,-2.34,-1.94]) box(root,[.10,.30,.72],[x,.16,-3.54],woodDark,[0,.11,0]);\n\n  // Right-side maintenance clutter.\n  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(.29,.30,.72,12),rustMat);\n  barrel.position.set(2.42,.36,-4.82);\n  barrel.rotation.z=.018;\n  barrel.castShadow=true;\n  barrel.receiveShadow=true;\n  root.add(barrel);\n  for(const y of [.12,.36,.60]){\n    const ring=new THREE.Mesh(new THREE.TorusGeometry(.295,.012,6,16),frameMat);\n    ring.rotation.x=Math.PI/2;\n    ring.position.set(2.42,y,-4.82);\n    ring.castShadow=true;\n    root.add(ring);\n  }\n\n  const bagPositions: Array<[number,number,number,number,number]> = [\n    [2.77,.22,-5.26,.88,1.08],[2.58,.19,-5.48,1.04,.82],[2.89,.17,-4.98,.76,.94]\n  ];\n  bagPositions.forEach(([x,y,z,sx,sz],i)=>{\n    const bag=new THREE.Mesh(new THREE.DodecahedronGeometry(.25+(i===1?.025:0),0),bagMat);\n    bag.scale.set(sx,1.18,sz);\n    bag.position.set(x,y,z);\n    bag.rotation.set(.12*i,.42*i,.10*(i-1));\n    bag.castShadow=true;\n    bag.receiveShadow=true;\n    root.add(bag);\n  });\n\n  // Cable spool puts a circular silhouette among the straight construction.\n  const spool=new THREE.Group();\n  spool.position.set(1.92,.34,-6.46);\n  spool.rotation.y=-.18;\n  root.add(spool);\n  const core=new THREE.Mesh(new THREE.CylinderGeometry(.17,.17,.46,12),woodDark);\n  core.rotation.z=Math.PI/2;\n  core.castShadow=true;\n  core.receiveShadow=true;\n  spool.add(core);\n  for(const x of [-.25,.25]){\n    const disc=new THREE.Mesh(new THREE.CylinderGeometry(.36,.36,.055,12),woodDark);\n    disc.rotation.z=Math.PI/2;\n    disc.position.x=x;\n    disc.castShadow=true;\n    disc.receiveShadow=true;\n    spool.add(disc);\n  }\n  const wound=new THREE.Mesh(new THREE.TorusGeometry(.235,.075,8,18),frameMat);\n  wound.rotation.y=Math.PI/2;\n  spool.add(wound);\n\n  // Interrupted work: dropped pipe + hanging cable.\n  const droppedPipe=new THREE.Mesh(new THREE.CylinderGeometry(.028,.030,1.55,8),steel);\n  droppedPipe.rotation.x=Math.PI/2;\n  droppedPipe.rotation.z=.05;\n  droppedPipe.position.set(1.66,.065,-7.16);\n  droppedPipe.castShadow=true;\n  droppedPipe.receiveShadow=true;\n  root.add(droppedPipe);\n\n  const hangingCurve=new THREE.CatmullRomCurve3([\n    new THREE.Vector3(-1.15,2.91,-1.95),\n    new THREE.Vector3(-1.10,2.62,-2.18),\n    new THREE.Vector3(-1.28,2.20,-2.36),\n    new THREE.Vector3(-1.08,1.78,-2.50),\n  ]);\n  const hangingCable=new THREE.Mesh(\n    new THREE.TubeGeometry(hangingCurve,18,.013,6,false),\n    frameMat\n  );\n  hangingCable.castShadow=true;\n  root.add(hangingCable);\n\n  const curb=new THREE.Mesh(makeBatteredBarrier(.92,.34,.42,512),concreteWall);\n  curb.position.set(-1.72,.17,.74);\n  curb.rotation.y=.16;\n  curb.castShadow=true;\n  curb.receiveShadow=true;\n  root.add(curb);\n}\n"
+          s = s.replace(marker, "\\n\\n" + fn + "\\nfunction addAuthoredGraffiti(root: THREE.Group, maxAniso: number) {")
+          
+          old_call = "  addLivedInDetail(root,maxAniso,concreteWall,woodDark,steel);\\n  addAuthoredGraffiti(root,maxAniso);"
+          new_call = "  addLivedInDetail(root,maxAniso,concreteWall,woodDark,steel);\\n  addMapFinishPass(root,concreteWall,woodDark,steel);\\n  addAuthoredGraffiti(root,maxAniso);"
+          assert old_call in s, "detail call marker missing"
+          s = s.replace(old_call, new_call)
+          
+          s = s.replace("NEXUS IWSDK A12 · QUEST REVERSE-ANGLE FIX", "NEXUS IWSDK A13 · MAP FINISH PASS")
+          s = s.replace("NEXUS A12 · WEBXR NOT AVAILABLE", "NEXUS A13 · WEBXR NOT AVAILABLE")
+          s = s.replace("NEXUS A12 · VR LIVE · REVERSE-ANGLE CHECK", "NEXUS A13 · VR LIVE · MAP CHECK")
+          s = s.replace("NEXUS A12 · VR EXITED · READY TO RE-ENTER", "NEXUS A13 · VR EXITED · READY TO RE-ENTER")
+          
+          p.write_text(s)
+          
+
+      - name: Commit A13 source
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add iwsdk/src/index.ts
+          git commit -m "IWSDK A13: add map finish structure and clutter pass"
+          git push origin HEAD:iwsdk-migration
