@@ -7,7 +7,7 @@ declare global {
   interface Window { __NEXUS_IWSDK_BUILD?: string; }
 }
 
-const BUILD = 'iwsdk-a10-authored-metal-surface';
+const BUILD = 'iwsdk-a11-body-presence-inertia';
 window.__NEXUS_IWSDK_BUILD = BUILD;
 
 function box(
@@ -553,9 +553,108 @@ function makeMetal049Color(maxAniso: number) {
   return tex;
 }
 
+
+function makeClothMap(maxAniso: number) {
+  return makeCanvasTexture(256,(ctx,size)=>{
+    ctx.fillStyle='#17191b';
+    ctx.fillRect(0,0,size,size);
+    for(let i=-size;i<size*2;i+=6){
+      ctx.strokeStyle='rgba(160,165,166,.035)';
+      ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i+size,size); ctx.stroke();
+    }
+    for(let i=-size;i<size*2;i+=9){
+      ctx.strokeStyle='rgba(0,0,0,.055)';
+      ctx.beginPath(); ctx.moveTo(i,size); ctx.lineTo(i+size,0); ctx.stroke();
+    }
+    for(let i=0;i<360;i++){
+      const x=hashNoise(i,71,2)*size, y=hashNoise(i,73,5)*size;
+      const a=.015+hashNoise(i,79,9)*.035;
+      ctx.fillStyle=`rgba(220,225,226,${a})`;
+      ctx.fillRect(x,y,1+hashNoise(i,83,4)*2,1);
+    }
+  },maxAniso,3.2,4.4);
+}
+
+function makeTorsoGeometry() {
+  const sh=new THREE.Shape();
+  sh.moveTo(-.24,-.43);
+  sh.lineTo(.24,-.43);
+  sh.lineTo(.30,-.18);
+  sh.lineTo(.31,.16);
+  sh.lineTo(.27,.33);
+  sh.lineTo(.18,.43);
+  sh.lineTo(-.18,.43);
+  sh.lineTo(-.27,.33);
+  sh.lineTo(-.31,.16);
+  sh.lineTo(-.30,-.18);
+  sh.closePath();
+  const g=new THREE.ExtrudeGeometry(sh,{
+    depth:.22,bevelEnabled:true,bevelSegments:2,bevelSize:.028,bevelThickness:.024,curveSegments:2
+  });
+  g.center();
+  return g;
+}
+
+function makeBodyPresence(maxAniso:number){
+  const root=new THREE.Group();
+  root.name='NEXUS_BODY_PROXY';
+
+  const cloth=makeClothMap(maxAniso);
+  const wetCloth=new THREE.MeshPhysicalMaterial({
+    color:0x17191b,map:cloth,bumpMap:cloth,bumpScale:.006,
+    roughness:.68,metalness:.02,clearcoat:.16,clearcoatRoughness:.34,
+    envMapIntensity:.28
+  });
+  const strapMat=new THREE.MeshStandardMaterial({
+    color:0x0b0c0d,roughness:.76,metalness:.16,envMapIntensity:.18
+  });
+
+  const torso=new THREE.Mesh(makeTorsoGeometry(),wetCloth);
+  torso.castShadow=true; torso.receiveShadow=true;
+  root.add(torso);
+
+  // Asymmetric harness lines stop the body from reading as a single generated shell.
+  const strapA=new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-.20,.34,.125),
+    new THREE.Vector3(-.08,.08,.128),
+    new THREE.Vector3(.05,-.18,.128),
+    new THREE.Vector3(.13,-.39,.126),
+  ]);
+  const strapB=new THREE.CatmullRomCurve3([
+    new THREE.Vector3(.20,.34,.127),
+    new THREE.Vector3(.11,.12,.130),
+    new THREE.Vector3(.03,-.06,.130),
+  ]);
+  for(const curve of [strapA,strapB]){
+    const m=new THREE.Mesh(new THREE.TubeGeometry(curve,12,.018,6,false),strapMat);
+    m.castShadow=true; root.add(m);
+  }
+
+  // Soft shoulder masses are custom low-poly cloth shells, positioned well below the camera.
+  const shoulderGeo=new THREE.SphereGeometry(.16,10,6);
+  shoulderGeo.scale(1.45,.68,1.15);
+  for(const x of [-.30,.30]){
+    const m=new THREE.Mesh(shoulderGeo.clone(),wetCloth);
+    m.position.set(x,.31,0);
+    m.rotation.z=x<0?.12:-.12;
+    m.castShadow=true; m.receiveShadow=true;
+    root.add(m);
+  }
+
+  root.visible=false;
+  return root;
+}
+
+function wrapPi(v:number){
+  while(v>Math.PI)v-=Math.PI*2;
+  while(v<-Math.PI)v+=Math.PI*2;
+  return v;
+}
+
 function buildHeroHall(maxAniso: number) {
   const root = new THREE.Group();
-  root.name = 'NEXUS_HERO_HALL_A10';
+  root.name = 'NEXUS_HERO_HALL_A11';
 
   const woodMap = makeWoodMap(maxAniso, false);
   const woodLightMap = makeWoodMap(maxAniso, true);
@@ -993,6 +1092,49 @@ async function main() {
   const hallEntity = world.createTransformEntity(hall);
   hallEntity.addComponent(LocomotionEnvironment, { type: EnvironmentType.STATIC });
 
+  // Bodycam-safe body presence: the real XR camera stays 1:1 with the headset.
+  // Only the visible torso settles behind fast head turns, producing camera-on-a-person inertia.
+  const bodyPresence=makeBodyPresence(maxAniso);
+  world.createTransformEntity(bodyPresence,{persistent:true});
+  const headPos=new THREE.Vector3();
+  const headQuat=new THREE.Quaternion();
+  const headEuler=new THREE.Euler(0,0,0,'YXZ');
+  const bodyOffset=new THREE.Vector3();
+  let bodyYaw=0;
+  let bodyRoll=0;
+  let previousTargetYaw=0;
+  let bodyInitialized=false;
+
+  world.onXRFrame((_frame,delta)=>{
+    const head=world.input.xr.xrOrigin.head;
+    head.getWorldPosition(headPos);
+    head.getWorldQuaternion(headQuat);
+    headEuler.setFromQuaternion(headQuat,'YXZ');
+
+    const targetYaw=headEuler.y;
+    if(!bodyInitialized){
+      bodyYaw=targetYaw;
+      previousTargetYaw=targetYaw;
+      bodyInitialized=true;
+      bodyPresence.visible=true;
+    }
+
+    const dt=Math.min(Math.max(delta,1/120),.05);
+    const yawError=wrapPi(targetYaw-bodyYaw);
+    bodyYaw += yawError*(1-Math.exp(-7.2*dt));
+
+    const turnDelta=wrapPi(targetYaw-previousTargetYaw);
+    previousTargetYaw=targetYaw;
+    const yawRate=turnDelta/dt;
+    const targetRoll=THREE.MathUtils.clamp(-yawRate*.010,-.065,.065);
+    bodyRoll += (targetRoll-bodyRoll)*(1-Math.exp(-10.5*dt));
+
+    bodyOffset.set(0,-.94,.08);
+    bodyOffset.applyAxisAngle(new THREE.Vector3(0,1,0),bodyYaw);
+    bodyPresence.position.copy(headPos).add(bodyOffset);
+    bodyPresence.rotation.set(0,bodyYaw,bodyRoll,'YXZ');
+  });
+
   // A6: practical-driven lighting. Each fluorescent has a downward source plus a
   // weaker omnidirectional fill, so the room is shaped by fixtures rather than a global cheat.
   for (const z of [0.85, -3.15, -7.10]) {
@@ -1028,14 +1170,16 @@ async function main() {
 
   const nativeXR = Boolean(navigator.xr);
   if (boot) boot.textContent = nativeXR
-    ? 'NEXUS IWSDK A10 · AUTHORED METAL SURFACE · QUEST'
-    : 'NEXUS A10 · WEBXR NOT AVAILABLE';
+    ? 'NEXUS IWSDK A11 · BODY PRESENCE · SAFE INERTIA'
+    : 'NEXUS A11 · WEBXR NOT AVAILABLE';
 
   world.renderer.xr.addEventListener('sessionstart', () => {
-    if (boot) boot.textContent = 'NEXUS A10 · VR LIVE · METAL MATERIAL PASS';
+    if (boot) boot.textContent = 'NEXUS A11 · VR LIVE · BODYCAM BODY PASS';
   });
   world.renderer.xr.addEventListener('sessionend', () => {
-    if (boot) boot.textContent = 'NEXUS A10 · VR EXITED · READY TO RE-ENTER';
+    bodyPresence.visible=false;
+    bodyInitialized=false;
+    if (boot) boot.textContent = 'NEXUS A11 · VR EXITED · READY TO RE-ENTER';
   });
 }
 
