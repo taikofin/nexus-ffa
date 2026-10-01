@@ -7,7 +7,7 @@ declare global {
   interface Window { __NEXUS_IWSDK_BUILD?: string; }
 }
 
-const BUILD = 'iwsdk-a11-body-presence-inertia';
+const BUILD = 'iwsdk-a12-quest-reverse-angle-fix';
 window.__NEXUS_IWSDK_BUILD = BUILD;
 
 function box(
@@ -435,12 +435,12 @@ function addLivedInDetail(
   dustGeo.setAttribute('position',new THREE.BufferAttribute(dust,3));
   const dustMat = new THREE.PointsMaterial({
     map: makeDustTexture(),
-    color:0xcfd7d5,
-    size:.062,
+    color:0xc7cecc,
+    size:.028,
     transparent:true,
-    opacity:.22,
+    opacity:.055,
     depthWrite:false,
-    blending:THREE.AdditiveBlending,
+    blending:THREE.NormalBlending,
     sizeAttenuation:true,
   });
   root.add(new THREE.Points(dustGeo,dustMat));
@@ -696,7 +696,7 @@ function buildHeroHall(maxAniso: number) {
     roughness: .46, metalness: .86, envMapIntensity: .52
   });
   const recessMat = new THREE.MeshStandardMaterial({
-    color: 0x242627, roughness: .94, metalness: .04, envMapIntensity: .10
+    color: 0x353738, roughness: .92, metalness: .05, envMapIntensity: .16
   });
   const wetConcrete = new THREE.MeshPhysicalMaterial({
     color: 0x585652, map: concreteMap, bumpMap: concreteMap, bumpScale: .004,
@@ -819,6 +819,43 @@ function buildHeroHall(maxAniso: number) {
     box(root,[.08,.08,1.02],[x-side*.10,2.09,-2.02],steel);
   }
 
+
+  // A12 Quest reverse-angle rescue: visible construction depth on the dark side walls.
+  // These are shallow authored layers that catch light and stop the wall becoming a black void.
+  for (const side of [-1,1]) {
+    const sx = side * 3.26;
+    for (const [z,y,h,w] of [
+      [1.55,1.12,1.38,.44],[-.15,1.55,.86,.36],[-2.10,.95,1.18,.52],
+      [-4.10,1.40,.72,.40],[-6.15,1.08,1.46,.46],[-8.20,1.52,.78,.38]
+    ] as Array<[number,number,number,number]>) {
+      const panel = new THREE.Mesh(makeBatteredBarrier(w,h,.07,410+Math.round((z+10)*7)+(side>0?30:0)), concreteWall);
+      panel.position.set(sx-side*.05,y,z);
+      panel.rotation.y = side < 0 ? Math.PI/2 : -Math.PI/2;
+      panel.rotation.z = ((Math.round((z+10)*3)%3)-1)*.012;
+      panel.castShadow = true;
+      panel.receiveShadow = true;
+      root.add(panel);
+    }
+
+    // Round service pipes instead of more rectangular rails.
+    for (const [y,z0,z1,r] of [
+      [1.92,2.2,-8.9,.020],[1.18,1.2,-7.8,.016]
+    ] as Array<[number,number,number,number]>) {
+      const curve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(sx-side*.16,y,z0),
+        new THREE.Vector3(sx-side*.17,y+.03,(z0+z1)*.50),
+        new THREE.Vector3(sx-side*.15,y,z1),
+      ]);
+      const pipe = new THREE.Mesh(
+        new THREE.TubeGeometry(curve,28,r,7,false),
+        steel
+      );
+      pipe.castShadow=true;
+      pipe.receiveShadow=true;
+      root.add(pipe);
+    }
+  }
+
   // A7 heavy concrete structure: these are the dominant masses from the BODYCAM target.
   // Existing wood framing remains as secondary construction instead of reading as the whole building.
   const pillars: Array<[number, number, number]> = [
@@ -852,10 +889,28 @@ function buildHeroHall(maxAniso: number) {
   }
   box(stairRoot,[1.16,.11,1.28],[0,1.43,-2.30],steel);
   for(const x of [-.52,.52]){
-    box(stairRoot,[.045,1.18,.045],[x,1.82,-2.28],steel);
-    box(stairRoot,[.045,.045,2.85],[x,2.36,-1.20],steel,[.37,0,0]);
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(.022,.024,1.18,8),steel);
+    post.position.set(x,1.82,-2.28);
+    post.castShadow=true; post.receiveShadow=true;
+    stairRoot.add(post);
+
+    const railCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(x,2.32,-2.33),
+      new THREE.Vector3(x,2.05,-1.65),
+      new THREE.Vector3(x,1.78,-.95),
+      new THREE.Vector3(x,1.50,-.20),
+    ]);
+    const rail = new THREE.Mesh(new THREE.TubeGeometry(railCurve,20,.022,8,false),steel);
+    rail.castShadow=true; rail.receiveShadow=true;
+    stairRoot.add(rail);
   }
-  box(stairRoot,[1.12,.045,.045],[0,2.36,-2.30],steel);
+  const topRail = new THREE.Mesh(
+    new THREE.TubeGeometry(
+      new THREE.LineCurve3(new THREE.Vector3(-.52,2.36,-2.30),new THREE.Vector3(.52,2.36,-2.30)),
+      1,.022,8,false
+    ),steel
+  );
+  stairRoot.add(topRail);
 
   // Far upper catwalk: a strong second level visible from spawn like the BODYCAM target.
   const catwalk = new THREE.Group();
@@ -864,10 +919,21 @@ function buildHeroHall(maxAniso: number) {
   box(catwalk,[5.35,.14,1.12],[0,1.80,0],steel);
   box(catwalk,[5.42,.22,.18],[0,1.63,-.48],concreteWall);
   for(const x of [-2.52,-1.72,-.86,0,.86,1.72,2.52]){
-    box(catwalk,[.045,.78,.045],[x,2.20,-.42],steel);
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(.020,.022,.78,8),steel);
+    post.position.set(x,2.20,-.42);
+    post.castShadow=true; post.receiveShadow=true;
+    catwalk.add(post);
   }
-  box(catwalk,[5.22,.045,.045],[0,2.58,-.42],steel);
-  box(catwalk,[5.22,.035,.035],[0,2.30,-.42],steel);
+  for(const y of [2.58,2.30]){
+    const rail = new THREE.Mesh(
+      new THREE.TubeGeometry(
+        new THREE.LineCurve3(new THREE.Vector3(-2.61,y,-.42),new THREE.Vector3(2.61,y,-.42)),
+        1,.020,8,false
+      ),steel
+    );
+    rail.castShadow=true; rail.receiveShadow=true;
+    catwalk.add(rail);
+  }
   // Occlusion breaks underneath so it reads as a built level, not a floating shelf.
   for(const x of [-2.05,-.70,.72,2.02]){
     box(catwalk,[.26,1.66,.30],[x,.86,.26],concreteWall,[0,0,(x>0?.003:-.003)]);
@@ -1068,10 +1134,10 @@ async function main() {
   world.renderer.shadowMap.enabled = true;
   world.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   world.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  world.renderer.toneMappingExposure = 1.28;
+  world.renderer.toneMappingExposure = 1.34;
   world.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-  const hemi = new THREE.HemisphereLight(0xe3ecee, 0x51463d, 0.78);
+  const hemi = new THREE.HemisphereLight(0xe7eef0, 0x5d5146, 0.92);
   world.createTransformEntity(hemi, { persistent: true });
 
   const key = new THREE.DirectionalLight(0xf1f5f5, 1.12);
@@ -1168,18 +1234,28 @@ async function main() {
   farLift.castShadow=false;
   world.createTransformEntity(farLift,{persistent:true});
 
+
+  // Low-energy wall bounces tuned from the Quest reverse-angle capture.
+  // They reveal construction without flattening the BODYCAM contrast.
+  for (const [x,z] of [[-2.75,-1.0],[2.75,-2.8],[-2.75,-5.1],[2.75,-7.2]] as Array<[number,number]>) {
+    const sideBounce = new THREE.PointLight(0xc9d4d6,.22,3.2,2.0);
+    sideBounce.position.set(x,1.35,z);
+    sideBounce.castShadow=false;
+    world.createTransformEntity(sideBounce,{persistent:true});
+  }
+
   const nativeXR = Boolean(navigator.xr);
   if (boot) boot.textContent = nativeXR
-    ? 'NEXUS IWSDK A11 · BODY PRESENCE · SAFE INERTIA'
-    : 'NEXUS A11 · WEBXR NOT AVAILABLE';
+    ? 'NEXUS IWSDK A12 · QUEST REVERSE-ANGLE FIX'
+    : 'NEXUS A12 · WEBXR NOT AVAILABLE';
 
   world.renderer.xr.addEventListener('sessionstart', () => {
-    if (boot) boot.textContent = 'NEXUS A11 · VR LIVE · BODYCAM BODY PASS';
+    if (boot) boot.textContent = 'NEXUS A12 · VR LIVE · REVERSE-ANGLE CHECK';
   });
   world.renderer.xr.addEventListener('sessionend', () => {
     bodyPresence.visible=false;
     bodyInitialized=false;
-    if (boot) boot.textContent = 'NEXUS A11 · VR EXITED · READY TO RE-ENTER';
+    if (boot) boot.textContent = 'NEXUS A12 · VR EXITED · READY TO RE-ENTER';
   });
 }
 
