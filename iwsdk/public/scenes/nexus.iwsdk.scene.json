@@ -1,16 +1,46 @@
 {
   "components": {
     "com.iwsdk.components.DomeGradient": {
-      "sky": [0.055, 0.068, 0.078, 1],
-      "equator": [0.12, 0.13, 0.13, 1],
-      "ground": [0.055, 0.048, 0.043, 1],
-      "intensity": 0.8
+      "sky": [
+        0.02,
+        0.024,
+        0.027,
+        1
+      ],
+      "equator": [
+        0.05,
+        0.052,
+        0.05,
+        1
+      ],
+      "ground": [
+        0.018,
+        0.016,
+        0.014,
+        1
+      ],
+      "intensity": 0.48
     },
     "com.iwsdk.components.IBLGradient": {
-      "sky": [0.58, 0.61, 0.62, 1],
-      "equator": [0.42, 0.40, 0.37, 1],
-      "ground": [0.18, 0.16, 0.14, 1],
-      "intensity": 0.78
+      "sky": [
+        0.2,
+        0.21,
+        0.21,
+        1
+      ],
+      "equator": [
+        0.13,
+        0.125,
+        0.115,
+        1
+      ],
+      "ground": [
+        0.045,
+        0.04,
+        0.035,
+        1
+      ],
+      "intensity": 0.38
     }
   },
   "nodes": [],
