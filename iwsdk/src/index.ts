@@ -7,7 +7,7 @@ declare global {
   interface Window { __NEXUS_IWSDK_BUILD?: string; }
 }
 
-const BUILD = 'iwsdk-a4-sensor-exposure';
+const BUILD = 'iwsdk-a5-wet-industrial-cohesion';
 window.__NEXUS_IWSDK_BUILD = BUILD;
 
 function box(
@@ -207,6 +207,16 @@ function buildHeroHall(maxAniso: number) {
   const steel = new THREE.MeshStandardMaterial({
     color: 0x474b4c, roughness: .62, metalness: .58, envMapIntensity: .34
   });
+  const wetConcrete = new THREE.MeshPhysicalMaterial({
+    color: 0x4b4946, map: concreteMap, bumpMap: concreteMap, bumpScale: .004,
+    roughness: .38, metalness: 0.0, clearcoat: .26, clearcoatRoughness: .20,
+    envMapIntensity: .30
+  });
+  const dampConcrete = new THREE.MeshPhysicalMaterial({
+    color: 0x57534e, map: concreteMap, bumpMap: concreteMap, bumpScale: .005,
+    roughness: .62, metalness: 0.0, clearcoat: .10, clearcoatRoughness: .34,
+    envMapIntensity: .22
+  });
 
   // Tiny edge bevels matter a lot in bodycam lighting. Real lumber never has infinitely sharp edges.
   wood.userData.edgeRadius = .006;
@@ -241,6 +251,25 @@ function buildHeroHall(maxAniso: number) {
 
   // One continuous slab: walls sit INTO it, instead of floating beside it.
   box(root, [7.4, 0.12, 14.0], [0, -0.06, -3.1], floorMat);
+
+  // A5 wetness is deliberately broken into irregular lanes instead of turning the
+  // entire floor into a mirror. Thin overlapping patches hide the rectangular base.
+  const wetPatches: Array<[number,number,number,number,number]> = [
+    [-1.62,-.002, 1.42, 2.15,.10], [1.34,-.001,.20,1.65,-.16],
+    [-.48,-.001,-2.62,2.45,.06], [1.70,-.001,-4.42,1.58,.20],
+    [-1.82,-.001,-5.72,1.42,-.13], [.32,-.001,-7.36,2.18,.14],
+    [1.56,-.001,-8.84,1.16,-.18]
+  ];
+  wetPatches.forEach(([x,y,z,w,r],i) => {
+    const g = new THREE.CircleGeometry(w * .58, 20);
+    g.scale(1, .42 + (i%3)*.08, 1);
+    g.rotateX(-Math.PI/2);
+    const m = new THREE.Mesh(g, i%3===0 ? dampConcrete : wetConcrete);
+    m.position.set(x,y,z);
+    m.rotation.y=r;
+    m.receiveShadow=true;
+    root.add(m);
+  });
 
   // Floor edge / wall transition cheat: sill plates overlap both surfaces.
   box(root, [0.15, 0.11, 13.5], [-3.23, 0.055, -3.1], woodDark);
@@ -292,6 +321,23 @@ function buildHeroHall(maxAniso: number) {
     box(p, [0.28, 0.06, 0.225], [0, 0.26, 0.105], steel, [0.02, 0, 0]);
   });
 
+  // Industrial depth layer: stairs, landing and rails create overlapping silhouettes
+  // like the reference rather than a single corridor vanishing point.
+  const stairRoot = new THREE.Group();
+  stairRoot.position.set(2.28,0,-5.05);
+  stairRoot.rotation.y = -.08;
+  root.add(stairRoot);
+  for(let i=0;i<8;i++){
+    const y=.11+i*.17, z=-i*.30;
+    box(stairRoot,[1.02,.09,.38],[0,y,z], i%3===0 ? steel : concreteWall);
+  }
+  box(stairRoot,[1.16,.11,1.28],[0,1.43,-2.30],steel);
+  for(const x of [-.52,.52]){
+    box(stairRoot,[.045,1.18,.045],[x,1.82,-2.28],steel);
+    box(stairRoot,[.045,.045,2.85],[x,2.36,-1.20],steel,[.37,0,0]);
+  }
+  box(stairRoot,[1.12,.045,.045],[0,2.36,-2.30],steel);
+
   // Open ceiling structure: beams, joists, gaps, and partial dark panels.
   const ceilingY = 2.96;
   const beamZ = [2.2, 0.25, -1.75, -3.82, -5.86, -7.92];
@@ -311,6 +357,20 @@ function buildHeroHall(maxAniso: number) {
   roofPanels.forEach(([x, y, z, rz], i) => {
     box(root, [3.10, 0.07, 2.35], [x, y, z], roofMat, [0, 0, rz + i * 0.0006]);
   });
+
+  // Hanging conduit and junction hardware: small-scale detail prevents the ceiling
+  // from reading as a collection of oversized blocks.
+  const conduitMat = new THREE.MeshStandardMaterial({color:0x35383a,roughness:.54,metalness:.66});
+  for(const x of [-2.48,-1.18,1.26,2.42]){
+    const pipe = new THREE.Mesh(new THREE.CylinderGeometry(.025,.025,9.6,10),conduitMat);
+    pipe.rotation.x=Math.PI/2;
+    pipe.position.set(x,2.73,-3.35);
+    root.add(pipe);
+  }
+  for(const z of [1.18,-2.72,-6.55]){
+    box(root,[.28,.16,.08],[-2.47,2.68,z],steel);
+    box(root,[.28,.16,.08],[ 1.27,2.68,z],steel);
+  }
 
   // Cross-bracing and imperfect utility details break the generated-maze look.
   box(root, [0.08, 0.08, 4.2], [-3.00, 1.52, -5.2], woodDark, [0.38, 0, 0]);
@@ -404,7 +464,7 @@ async function main() {
   world.renderer.shadowMap.enabled = true;
   world.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   world.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  world.renderer.toneMappingExposure = 1.04;
+  world.renderer.toneMappingExposure = 1.01;
   world.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const hemi = new THREE.HemisphereLight(0xd9dfe0, 0x211d18, 0.56);
@@ -428,16 +488,16 @@ async function main() {
   const hallEntity = world.createTransformEntity(hall);
   hallEntity.addComponent(LocomotionEnvironment, { type: EnvironmentType.STATIC });
 
-  // A4 headset exposure pass: brighter practical pools + restrained warm bounce.
+  // A5 keeps readable A4 exposure while tightening practical pools around the wetter floor.
   // The point is readable shadow information, not a flat globally-lit room.
   for (const z of [0.85, -3.15, -7.10]) {
-    const practical = new THREE.PointLight(0xeaf5f8, 1.08, 6.2, 2.0);
+    const practical = new THREE.PointLight(0xeaf5f8, 1.02, 5.8, 2.0);
     practical.position.set(0, 2.60, z);
     practical.castShadow = false;
     world.createTransformEntity(practical, { persistent: true });
 
     for (const side of [-1, 1]) {
-      const bounce = new THREE.PointLight(0xffd3a8, 0.18, 3.4, 2.0);
+      const bounce = new THREE.PointLight(0xffd3a8, 0.15, 3.1, 2.0);
       bounce.position.set(side * 2.68, 1.10, z - 0.25);
       bounce.castShadow = false;
       world.createTransformEntity(bounce, { persistent: true });
@@ -449,14 +509,14 @@ async function main() {
   // rather than masking the environment/exposure problem with more effects.
   const nativeXR = Boolean(navigator.xr);
   if (boot) boot.textContent = nativeXR
-    ? 'NEXUS IWSDK A4 · SENSOR EXPOSURE · BODYCAM LIGHTING'
-    : 'NEXUS A4 · WEBXR NOT AVAILABLE';
+    ? 'NEXUS IWSDK A5 · WET INDUSTRIAL · BODYCAM COHESION'
+    : 'NEXUS A5 · WEBXR NOT AVAILABLE';
 
   world.renderer.xr.addEventListener('sessionstart', () => {
-    if (boot) boot.textContent = 'NEXUS A4 · VR LIVE · SENSOR EXPOSURE PASS';
+    if (boot) boot.textContent = 'NEXUS A5 · VR LIVE · WET INDUSTRIAL PASS';
   });
   world.renderer.xr.addEventListener('sessionend', () => {
-    if (boot) boot.textContent = 'NEXUS A4 · VR EXITED · READY TO RE-ENTER';
+    if (boot) boot.textContent = 'NEXUS A5 · VR EXITED · READY TO RE-ENTER';
   });
 }
 
