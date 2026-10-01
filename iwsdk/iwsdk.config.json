@@ -5,16 +5,42 @@
   "world": {
     "xr": {
       "mode": "vr",
-      "features": { "handTracking": { "required": true } }
+      "offer": "always",
+      "referenceSpace": {
+        "type": "local-floor",
+        "required": false
+      },
+      "features": {
+        "handTracking": true
+      }
     },
     "render": {
-      "near": 0.01,
+      "near": 0.015,
       "far": 120,
-      "camera": { "position": [0, 1.62, 3.4], "rotation": [0, 0, 0] }
+      "camera": {
+        "position": [
+          0,
+          1.62,
+          3.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      }
     },
-    "features": { "grabbing": true, "locomotion": true, "spatialUI": true }
+    "features": {
+      "grabbing": true,
+      "locomotion": true,
+      "spatialUI": true
+    }
   },
   "dev": {
-    "emulator": { "device": "metaQuest3", "activation": "always", "injectOnBuild": true }
+    "emulator": {
+      "device": "metaQuest3",
+      "activation": "localhost",
+      "injectOnBuild": false
+    }
   }
 }
