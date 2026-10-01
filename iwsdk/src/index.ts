@@ -1,12 +1,13 @@
 import { EnvironmentType, LocomotionEnvironment, World } from '@iwsdk/core';
 import projectOptions from 'virtual:iwsdk-project';
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 declare global {
   interface Window { __NEXUS_IWSDK_BUILD?: string; }
 }
 
-const BUILD = 'iwsdk-a2-bodycam-realism';
+const BUILD = 'iwsdk-a3-native-trickshot';
 window.__NEXUS_IWSDK_BUILD = BUILD;
 
 function box(
@@ -16,7 +17,11 @@ function box(
   mat: THREE.Material,
   rot: [number, number, number] = [0, 0, 0],
 ) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), mat);
+  const edgeRadius = Number((mat as THREE.Material & { userData: Record<string, unknown> }).userData?.edgeRadius ?? 0);
+  const geometry = edgeRadius > 0
+    ? new RoundedBoxGeometry(size[0], size[1], size[2], 2, Math.min(edgeRadius, Math.min(...size) * 0.18))
+    : new THREE.BoxGeometry(...size);
+  const mesh = new THREE.Mesh(geometry, mat);
   mesh.position.set(...pos);
   mesh.rotation.set(...rot);
   mesh.castShadow = true;
@@ -203,6 +208,37 @@ function buildHeroHall(maxAniso: number) {
     color: 0x474b4c, roughness: .62, metalness: .58, envMapIntensity: .34
   });
 
+  // Tiny edge bevels matter a lot in bodycam lighting. Real lumber never has infinitely sharp edges.
+  wood.userData.edgeRadius = .006;
+  woodLight.userData.edgeRadius = .006;
+  woodDark.userData.edgeRadius = .005;
+  steel.userData.edgeRadius = .004;
+
+  const concreteWall = new THREE.MeshStandardMaterial({
+    color: 0x4a4844,
+    map: concreteMap,
+    bumpMap: concreteMap,
+    bumpScale: .007,
+    roughness: .96,
+    metalness: 0,
+    envMapIntensity: .12
+  });
+
+  const targetSteel = new THREE.MeshStandardMaterial({
+    color: 0x626568,
+    roughness: .48,
+    metalness: .72,
+    envMapIntensity: .42
+  });
+  targetSteel.userData.edgeRadius = .003;
+
+  const targetEdge = new THREE.MeshStandardMaterial({
+    color: 0x1c1e20,
+    roughness: .68,
+    metalness: .46,
+    envMapIntensity: .24
+  });
+
   // One continuous slab: walls sit INTO it, instead of floating beside it.
   box(root, [7.4, 0.12, 14.0], [0, -0.06, -3.1], floorMat);
 
@@ -300,6 +336,63 @@ function buildHeroHall(maxAniso: number) {
     box(root, [0.16, 0.055, 1.55], [0.0, 2.82, z], lightMat);
   }
 
+  // A3 TRICK-SHOT ACTION LANE
+  // The hallway is now a shooting/action set, not the purpose of the game.
+  box(root, [6.20, 2.85, 0.22], [0, 1.42, -10.05], concreteWall);
+
+  // Low cover / vault pieces for dives and camera movement.
+  box(root, [1.55, 0.72, 0.42], [-1.35, .36, -4.25], concreteWall, [0, .08, 0]);
+  box(root, [1.15, 0.48, 0.36], [ 1.55, .24, -6.10], concreteWall, [0,-.12, 0]);
+  box(root, [0.84, 1.05, 0.34], [-1.75, .525,-8.00], concreteWall, [0,.04,0]);
+
+  const targetGeo = new THREE.CylinderGeometry(.19,.19,.032,24);
+  targetGeo.rotateX(Math.PI/2);
+  const ringGeo = new THREE.TorusGeometry(.19,.012,8,24);
+
+  const targets: Array<[number,number,number,number]> = [
+    [-1.85,1.35,-7.25,-.08],
+    [ 1.62,1.82,-7.90, .09],
+    [-.35,1.10,-8.78,-.03],
+    [ 2.12,1.20,-9.52, .05],
+    [-2.20,2.10,-9.35,-.06]
+  ];
+
+  targets.forEach(([x,y,z,ry],i)=>{
+    const group=new THREE.Group();
+    group.position.set(x,y,z);
+    group.rotation.y=ry;
+
+    const plate=new THREE.Mesh(targetGeo,targetSteel);
+    plate.castShadow=true;
+    plate.receiveShadow=true;
+    group.add(plate);
+
+    const rim=new THREE.Mesh(ringGeo,targetEdge);
+    rim.position.z=.020;
+    rim.castShadow=true;
+    group.add(rim);
+
+    const hanger=new THREE.Mesh(
+      new RoundedBoxGeometry(.035,.58,.035,2,.004),
+      targetEdge
+    );
+    hanger.position.y=.43;
+    hanger.castShadow=true;
+    group.add(hanger);
+
+    const top=new THREE.Mesh(
+      new RoundedBoxGeometry(.34,.035,.035,2,.004),
+      targetEdge
+    );
+    top.position.set(0,.72,0);
+    group.add(top);
+
+    root.add(group);
+  });
+
+  // One angled overhead beam gives a real visual cue for dive-under / trick-shot lines.
+  box(root,[2.8,.10,.12],[1.45,2.25,-5.35],woodDark,[0,0,THREE.MathUtils.degToRad(-7)]);
+
   return root;
 }
 
@@ -344,7 +437,17 @@ async function main() {
 
   // First IWSDK pass intentionally does NOT port the old procedural black sleeves.
   // Real tracked hands stay clean; clothing returns only after a proper arm mesh is ready.
-  if (boot) boot.textContent = 'NEXUS IWSDK A2 · BODYCAM REALISM · MUTED MATERIALS';
+  const nativeXR = Boolean(navigator.xr);
+  if (boot) boot.textContent = nativeXR
+    ? 'NEXUS IWSDK A3 · NATIVE QUEST · TRICK-SHOT ACTION LAB'
+    : 'NEXUS A3 · WEBXR NOT AVAILABLE';
+
+  world.renderer.xr.addEventListener('sessionstart', () => {
+    if (boot) boot.textContent = 'NEXUS A3 · VR LIVE · HAND TRACKING REQUESTED';
+  });
+  world.renderer.xr.addEventListener('sessionend', () => {
+    if (boot) boot.textContent = 'NEXUS A3 · VR EXITED · READY TO RE-ENTER';
+  });
 }
 
 main().catch((error) => {
