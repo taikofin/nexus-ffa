@@ -7,7 +7,7 @@ declare global {
   interface Window { __NEXUS_IWSDK_BUILD?: string; }
 }
 
-const BUILD = 'iwsdk-a3-native-trickshot';
+const BUILD = 'iwsdk-a4-sensor-exposure';
 window.__NEXUS_IWSDK_BUILD = BUILD;
 
 function box(
@@ -168,7 +168,7 @@ function makeRoofMap(maxAniso: number) {
 
 function buildHeroHall(maxAniso: number) {
   const root = new THREE.Group();
-  root.name = 'NEXUS_HERO_HALL_A1';
+  root.name = 'NEXUS_HERO_HALL_A4';
 
   const woodMap = makeWoodMap(maxAniso, false);
   const woodLightMap = makeWoodMap(maxAniso, true);
@@ -194,14 +194,14 @@ function buildHeroHall(maxAniso: number) {
     roughness: .90, metalness: 0.0, envMapIntensity: .22
   });
   const floorMat = new THREE.MeshStandardMaterial({
-    color: 0x56534e, map: concreteMap, bumpMap: concreteMap, bumpScale: .006,
+    color: 0x625f59, map: concreteMap, bumpMap: concreteMap, bumpScale: .006,
     roughness: .96, metalness: 0.0, envMapIntensity: .16
   });
   const seamMat = new THREE.MeshStandardMaterial({
     color: 0x2d2b28, roughness: .98, metalness: 0.0, envMapIntensity: .08
   });
   const roofMat = new THREE.MeshStandardMaterial({
-    color: 0x1b1d1f, map: roofMap, bumpMap: roofMap, bumpScale: .004,
+    color: 0x25272a, map: roofMap, bumpMap: roofMap, bumpScale: .004,
     roughness: .95, metalness: .02, envMapIntensity: .12
   });
   const steel = new THREE.MeshStandardMaterial({
@@ -215,7 +215,7 @@ function buildHeroHall(maxAniso: number) {
   steel.userData.edgeRadius = .004;
 
   const concreteWall = new THREE.MeshStandardMaterial({
-    color: 0x4a4844,
+    color: 0x56534f,
     map: concreteMap,
     bumpMap: concreteMap,
     bumpScale: .007,
@@ -404,13 +404,13 @@ async function main() {
   world.renderer.shadowMap.enabled = true;
   world.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   world.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  world.renderer.toneMappingExposure = 0.78;
+  world.renderer.toneMappingExposure = 1.04;
   world.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-  const hemi = new THREE.HemisphereLight(0xcfd7d8, 0x171512, 0.40);
+  const hemi = new THREE.HemisphereLight(0xd9dfe0, 0x211d18, 0.56);
   world.createTransformEntity(hemi, { persistent: true });
 
-  const key = new THREE.DirectionalLight(0xf4f7f7, 1.45);
+  const key = new THREE.DirectionalLight(0xf4f7f7, 1.62);
   key.position.set(-1.8, 7.0, 1.0);
   key.castShadow = true;
   key.shadow.mapSize.set(1024, 1024);
@@ -428,25 +428,35 @@ async function main() {
   const hallEntity = world.createTransformEntity(hall);
   hallEntity.addComponent(LocomotionEnvironment, { type: EnvironmentType.STATIC });
 
+  // A4 headset exposure pass: brighter practical pools + restrained warm bounce.
+  // The point is readable shadow information, not a flat globally-lit room.
   for (const z of [0.85, -3.15, -7.10]) {
-    const practical = new THREE.PointLight(0xe9f4f7, 0.82, 5.2, 2.0);
+    const practical = new THREE.PointLight(0xeaf5f8, 1.08, 6.2, 2.0);
     practical.position.set(0, 2.60, z);
     practical.castShadow = false;
     world.createTransformEntity(practical, { persistent: true });
+
+    for (const side of [-1, 1]) {
+      const bounce = new THREE.PointLight(0xffd3a8, 0.18, 3.4, 2.0);
+      bounce.position.set(side * 2.68, 1.10, z - 0.25);
+      bounce.castShadow = false;
+      world.createTransformEntity(bounce, { persistent: true });
+    }
   }
 
-  // First IWSDK pass intentionally does NOT port the old procedural black sleeves.
-  // Real tracked hands stay clean; clothing returns only after a proper arm mesh is ready.
+  // A4 deliberately fixes the scene before layering more action systems.
+  // Keep native tracked hands temporarily; custom dark-brown hand visuals come next
+  // rather than masking the environment/exposure problem with more effects.
   const nativeXR = Boolean(navigator.xr);
   if (boot) boot.textContent = nativeXR
-    ? 'NEXUS IWSDK A3 · NATIVE QUEST · TRICK-SHOT ACTION LAB'
-    : 'NEXUS A3 · WEBXR NOT AVAILABLE';
+    ? 'NEXUS IWSDK A4 · SENSOR EXPOSURE · BODYCAM LIGHTING'
+    : 'NEXUS A4 · WEBXR NOT AVAILABLE';
 
   world.renderer.xr.addEventListener('sessionstart', () => {
-    if (boot) boot.textContent = 'NEXUS A3 · VR LIVE · HAND TRACKING REQUESTED';
+    if (boot) boot.textContent = 'NEXUS A4 · VR LIVE · SENSOR EXPOSURE PASS';
   });
   world.renderer.xr.addEventListener('sessionend', () => {
-    if (boot) boot.textContent = 'NEXUS A3 · VR EXITED · READY TO RE-ENTER';
+    if (boot) boot.textContent = 'NEXUS A4 · VR EXITED · READY TO RE-ENTER';
   });
 }
 
