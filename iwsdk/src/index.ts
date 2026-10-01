@@ -6,7 +6,7 @@ declare global {
   interface Window { __NEXUS_IWSDK_BUILD?: string; }
 }
 
-const BUILD = 'iwsdk-a1-hero-hall';
+const BUILD = 'iwsdk-a2-bodycam-realism';
 window.__NEXUS_IWSDK_BUILD = BUILD;
 
 function box(
@@ -25,18 +25,183 @@ function box(
   return mesh;
 }
 
-function buildHeroHall() {
+function makeCanvasTexture(
+  size: number,
+  paint: (ctx: CanvasRenderingContext2D, size: number) => void,
+  maxAniso: number,
+  repeatX: number,
+  repeatY: number,
+) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  paint(ctx, size);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(repeatX, repeatY);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAniso;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = true;
+  return tex;
+}
+
+function hashNoise(x: number, y: number, seed = 0) {
+  const n = Math.sin(x * 12.9898 + y * 78.233 + seed * 19.19) * 43758.5453;
+  return n - Math.floor(n);
+}
+
+function makeWoodMap(maxAniso: number, pale = false) {
+  return makeCanvasTexture(512, (ctx, size) => {
+    ctx.fillStyle = pale ? '#9a8268' : '#846d56';
+    ctx.fillRect(0, 0, size, size);
+
+    for (let y = 0; y < size; y += 2) {
+      const n = hashNoise(y, 9, pale ? 4 : 2);
+      const l = Math.floor(86 + n * 36);
+      ctx.strokeStyle = `rgba(${l},${Math.floor(l * .82)},${Math.floor(l * .62)},.18)`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, y + Math.sin(y * .041) * 2.2);
+      ctx.bezierCurveTo(size * .28, y + 4 * Math.sin(y * .021), size * .70, y - 3 * Math.cos(y * .027), size, y + Math.sin(y * .033) * 2.6);
+      ctx.stroke();
+    }
+
+    for (let i = 0; i < 18; i++) {
+      const x = hashNoise(i, 7, 11) * size;
+      const y = hashNoise(i, 13, 17) * size;
+      const rx = 6 + hashNoise(i, 3, 5) * 18;
+      const ry = 2 + hashNoise(i, 8, 9) * 7;
+      ctx.strokeStyle = 'rgba(48,34,24,.28)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(x, y, rx, ry, hashNoise(i, 1, 8) * .7, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    for (let i = 0; i < 170; i++) {
+      const x = hashNoise(i, 31, 4) * size;
+      const y = hashNoise(i, 47, 8) * size;
+      const a = .04 + hashNoise(i, 51, 2) * .07;
+      ctx.fillStyle = `rgba(35,29,23,${a})`;
+      ctx.fillRect(x, y, 1 + hashNoise(i, 2, 7) * 3, 1);
+    }
+  }, maxAniso, 1.4, 3.2);
+}
+
+function makeOSBMap(maxAniso: number) {
+  return makeCanvasTexture(1024, (ctx, size) => {
+    ctx.fillStyle = '#9a866a';
+    ctx.fillRect(0, 0, size, size);
+
+    for (let i = 0; i < 5200; i++) {
+      const x = hashNoise(i, 1, 3) * size;
+      const y = hashNoise(i, 5, 7) * size;
+      const w = 4 + hashNoise(i, 9, 11) * 18;
+      const h = 1.2 + hashNoise(i, 13, 17) * 4.5;
+      const rot = (hashNoise(i, 21, 23) - .5) * 1.1;
+      const shade = 118 + Math.floor(hashNoise(i, 27, 31) * 56);
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(rot);
+      ctx.fillStyle = `rgba(${shade},${Math.floor(shade*.88)},${Math.floor(shade*.68)},${.16 + hashNoise(i,35,37)*.22})`;
+      ctx.fillRect(-w*.5, -h*.5, w, h);
+      ctx.restore();
+    }
+
+    for (let i = 0; i < 90; i++) {
+      const x = hashNoise(i, 43, 47) * size;
+      const y = hashNoise(i, 53, 59) * size;
+      ctx.fillStyle = 'rgba(38,32,27,.20)';
+      ctx.beginPath();
+      ctx.arc(x, y, 1.2 + hashNoise(i, 61, 67) * 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }, maxAniso, 2.2, 2.2);
+}
+
+function makeConcreteMap(maxAniso: number) {
+  return makeCanvasTexture(512, (ctx, size) => {
+    ctx.fillStyle = '#53514d';
+    ctx.fillRect(0, 0, size, size);
+    for (let i = 0; i < 8500; i++) {
+      const x = hashNoise(i, 5, 2) * size;
+      const y = hashNoise(i, 11, 4) * size;
+      const v = 56 + Math.floor(hashNoise(i, 17, 7) * 50);
+      const a = .03 + hashNoise(i, 23, 9) * .09;
+      ctx.fillStyle = `rgba(${v},${v},${v},${a})`;
+      ctx.fillRect(x, y, 1, 1);
+    }
+    for (let i = 0; i < 38; i++) {
+      const x = hashNoise(i, 29, 11) * size;
+      const y = hashNoise(i, 31, 13) * size;
+      const r = 4 + hashNoise(i, 37, 17) * 22;
+      const g = ctx.createRadialGradient(x,y,0,x,y,r);
+      g.addColorStop(0,'rgba(20,18,16,.08)');
+      g.addColorStop(1,'rgba(20,18,16,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x-r,y-r,r*2,r*2);
+    }
+  }, maxAniso, 5.2, 10.0);
+}
+
+function makeRoofMap(maxAniso: number) {
+  return makeCanvasTexture(512, (ctx, size) => {
+    ctx.fillStyle = '#202225';
+    ctx.fillRect(0,0,size,size);
+    for(let i=0;i<1600;i++){
+      const x=hashNoise(i,3,4)*size;
+      const y=hashNoise(i,7,8)*size;
+      const v=22+Math.floor(hashNoise(i,11,12)*28);
+      ctx.fillStyle=`rgba(${v},${v+1},${v+2},${.04+hashNoise(i,13,14)*.10})`;
+      ctx.fillRect(x,y,1+hashNoise(i,17,18)*4,1);
+    }
+  }, maxAniso, 2.0, 2.0);
+}
+
+function buildHeroHall(maxAniso: number) {
   const root = new THREE.Group();
   root.name = 'NEXUS_HERO_HALL_A1';
 
-  const wood = new THREE.MeshStandardMaterial({ color: 0xc4a374, roughness: 0.79, metalness: 0.0 });
-  const woodLight = new THREE.MeshStandardMaterial({ color: 0xd0b486, roughness: 0.82, metalness: 0.0 });
-  const woodDark = new THREE.MeshStandardMaterial({ color: 0x8d704d, roughness: 0.86, metalness: 0.0 });
-  const osb = new THREE.MeshStandardMaterial({ color: 0xb99768, roughness: 0.88, metalness: 0.0 });
-  const floorMat = new THREE.MeshStandardMaterial({ color: 0x696761, roughness: 0.94, metalness: 0.0 });
-  const seamMat = new THREE.MeshStandardMaterial({ color: 0x403c35, roughness: 0.97, metalness: 0.0 });
-  const roofMat = new THREE.MeshStandardMaterial({ color: 0x272a2c, roughness: 0.90, metalness: 0.03 });
-  const steel = new THREE.MeshStandardMaterial({ color: 0x4f5354, roughness: 0.56, metalness: 0.62 });
+  const woodMap = makeWoodMap(maxAniso, false);
+  const woodLightMap = makeWoodMap(maxAniso, true);
+  const osbMap = makeOSBMap(maxAniso);
+  const concreteMap = makeConcreteMap(maxAniso);
+  const roofMap = makeRoofMap(maxAniso);
+
+  // BODYCAM palette: muted, dirty, rough. No saturated "VR demo" colors.
+  const wood = new THREE.MeshStandardMaterial({
+    color: 0x8f7a63, map: woodMap, bumpMap: woodMap, bumpScale: .010,
+    roughness: .86, metalness: 0.0, envMapIntensity: .26
+  });
+  const woodLight = new THREE.MeshStandardMaterial({
+    color: 0xa48c70, map: woodLightMap, bumpMap: woodLightMap, bumpScale: .009,
+    roughness: .84, metalness: 0.0, envMapIntensity: .28
+  });
+  const woodDark = new THREE.MeshStandardMaterial({
+    color: 0x6d5b49, map: woodMap, bumpMap: woodMap, bumpScale: .011,
+    roughness: .91, metalness: 0.0, envMapIntensity: .20
+  });
+  const osb = new THREE.MeshStandardMaterial({
+    color: 0xa08e74, map: osbMap, bumpMap: osbMap, bumpScale: .012,
+    roughness: .90, metalness: 0.0, envMapIntensity: .22
+  });
+  const floorMat = new THREE.MeshStandardMaterial({
+    color: 0x56534e, map: concreteMap, bumpMap: concreteMap, bumpScale: .006,
+    roughness: .96, metalness: 0.0, envMapIntensity: .16
+  });
+  const seamMat = new THREE.MeshStandardMaterial({
+    color: 0x2d2b28, roughness: .98, metalness: 0.0, envMapIntensity: .08
+  });
+  const roofMat = new THREE.MeshStandardMaterial({
+    color: 0x1b1d1f, map: roofMap, bumpMap: roofMap, bumpScale: .004,
+    roughness: .95, metalness: .02, envMapIntensity: .12
+  });
+  const steel = new THREE.MeshStandardMaterial({
+    color: 0x474b4c, roughness: .62, metalness: .58, envMapIntensity: .34
+  });
 
   // One continuous slab: walls sit INTO it, instead of floating beside it.
   box(root, [7.4, 0.12, 14.0], [0, -0.06, -3.1], floorMat);
@@ -126,10 +291,10 @@ function buildHeroHall() {
 
   // Bright practical fixtures against the darker open ceiling.
   const lightMat = new THREE.MeshStandardMaterial({
-    color: 0xf5f2e8,
-    emissive: 0xffffff,
-    emissiveIntensity: 3.1,
-    roughness: 0.42,
+    color: 0xdfe7e8,
+    emissive: 0xf2fbff,
+    emissiveIntensity: 2.2,
+    roughness: 0.58,
   });
   for (const z of [0.85, -3.15, -7.10]) {
     box(root, [0.16, 0.055, 1.55], [0.0, 2.82, z], lightMat);
@@ -145,11 +310,14 @@ async function main() {
 
   world.renderer.shadowMap.enabled = true;
   world.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  world.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  world.renderer.toneMappingExposure = 0.78;
+  world.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-  const hemi = new THREE.HemisphereLight(0xeaf1f2, 0x332b23, 1.05);
+  const hemi = new THREE.HemisphereLight(0xcfd7d8, 0x171512, 0.40);
   world.createTransformEntity(hemi, { persistent: true });
 
-  const key = new THREE.DirectionalLight(0xfffbf2, 2.0);
+  const key = new THREE.DirectionalLight(0xf4f7f7, 1.45);
   key.position.set(-1.8, 7.0, 1.0);
   key.castShadow = true;
   key.shadow.mapSize.set(1024, 1024);
@@ -162,13 +330,21 @@ async function main() {
   key.shadow.normalBias = 0.025;
   world.createTransformEntity(key, { persistent: true });
 
-  const hall = buildHeroHall();
+  const maxAniso = Math.min(8, world.renderer.capabilities.getMaxAnisotropy());
+  const hall = buildHeroHall(maxAniso);
   const hallEntity = world.createTransformEntity(hall);
   hallEntity.addComponent(LocomotionEnvironment, { type: EnvironmentType.STATIC });
 
+  for (const z of [0.85, -3.15, -7.10]) {
+    const practical = new THREE.PointLight(0xe9f4f7, 0.82, 5.2, 2.0);
+    practical.position.set(0, 2.60, z);
+    practical.castShadow = false;
+    world.createTransformEntity(practical, { persistent: true });
+  }
+
   // First IWSDK pass intentionally does NOT port the old procedural black sleeves.
   // Real tracked hands stay clean; clothing returns only after a proper arm mesh is ready.
-  if (boot) boot.textContent = 'NEXUS IWSDK A1 · HERO HALL · OLD SLEEVES REMOVED';
+  if (boot) boot.textContent = 'NEXUS IWSDK A2 · BODYCAM REALISM · MUTED MATERIALS';
 }
 
 main().catch((error) => {
