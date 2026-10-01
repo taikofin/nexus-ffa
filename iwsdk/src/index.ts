@@ -7,7 +7,7 @@ declare global {
   interface Window { __NEXUS_IWSDK_BUILD?: string; }
 }
 
-const BUILD = 'iwsdk-a8-authored-graffiti-pass';
+const BUILD = 'iwsdk-a9-concrete-arena-rebuild';
 window.__NEXUS_IWSDK_BUILD = BUILD;
 
 function box(
@@ -541,7 +541,7 @@ function addAuthoredGraffiti(root: THREE.Group, maxAniso: number) {
 
 function buildHeroHall(maxAniso: number) {
   const root = new THREE.Group();
-  root.name = 'NEXUS_HERO_HALL_A8';
+  root.name = 'NEXUS_HERO_HALL_A9';
 
   const woodMap = makeWoodMap(maxAniso, false);
   const woodLightMap = makeWoodMap(maxAniso, true);
@@ -551,20 +551,20 @@ function buildHeroHall(maxAniso: number) {
 
   // BODYCAM palette: muted, dirty, rough. No saturated "VR demo" colors.
   const wood = new THREE.MeshStandardMaterial({
-    color: 0x8f7a63, map: woodMap, bumpMap: woodMap, bumpScale: .010,
-    roughness: .86, metalness: 0.0, envMapIntensity: .26
+    color: 0x756b60, map: woodMap, bumpMap: woodMap, bumpScale: .010,
+    roughness: .88, metalness: 0.0, envMapIntensity: .22
   });
   const woodLight = new THREE.MeshStandardMaterial({
-    color: 0xa48c70, map: woodLightMap, bumpMap: woodLightMap, bumpScale: .009,
-    roughness: .84, metalness: 0.0, envMapIntensity: .28
+    color: 0x8a7d6d, map: woodLightMap, bumpMap: woodLightMap, bumpScale: .009,
+    roughness: .86, metalness: 0.0, envMapIntensity: .24
   });
   const woodDark = new THREE.MeshStandardMaterial({
-    color: 0x6d5b49, map: woodMap, bumpMap: woodMap, bumpScale: .011,
-    roughness: .91, metalness: 0.0, envMapIntensity: .20
+    color: 0x514a43, map: woodMap, bumpMap: woodMap, bumpScale: .011,
+    roughness: .93, metalness: 0.0, envMapIntensity: .17
   });
   const osb = new THREE.MeshStandardMaterial({
-    color: 0xa08e74, map: osbMap, bumpMap: osbMap, bumpScale: .012,
-    roughness: .90, metalness: 0.0, envMapIntensity: .22
+    color: 0x8c806f, map: osbMap, bumpMap: osbMap, bumpScale: .012,
+    roughness: .92, metalness: 0.0, envMapIntensity: .18
   });
   const floorMat = new THREE.MeshStandardMaterial({
     color: 0x77736d, map: concreteMap, bumpMap: concreteMap, bumpScale: .006,
@@ -574,11 +574,14 @@ function buildHeroHall(maxAniso: number) {
     color: 0x2d2b28, roughness: .98, metalness: 0.0, envMapIntensity: .08
   });
   const roofMat = new THREE.MeshStandardMaterial({
-    color: 0x25272a, map: roofMap, bumpMap: roofMap, bumpScale: .004,
-    roughness: .95, metalness: .02, envMapIntensity: .12
+    color: 0x34373a, map: roofMap, bumpMap: roofMap, bumpScale: .004,
+    roughness: .90, metalness: .05, envMapIntensity: .18
   });
   const steel = new THREE.MeshStandardMaterial({
-    color: 0x474b4c, roughness: .62, metalness: .58, envMapIntensity: .34
+    color: 0x55595b, roughness: .54, metalness: .64, envMapIntensity: .42
+  });
+  const recessMat = new THREE.MeshStandardMaterial({
+    color: 0x242627, roughness: .94, metalness: .04, envMapIntensity: .10
   });
   const wetConcrete = new THREE.MeshPhysicalMaterial({
     color: 0x585652, map: concreteMap, bumpMap: concreteMap, bumpScale: .004,
@@ -648,33 +651,56 @@ function buildHeroHall(maxAniso: number) {
   box(root, [0.15, 0.11, 13.5], [-3.23, 0.055, -3.1], woodDark);
   box(root, [0.15, 0.11, 13.5], [ 3.23, 0.055, -3.1], woodDark);
 
-  // Panel walls with a shallow structural cavity.
+  // A9 structural rebuild: the side boundaries now read as concrete/steel bays with
+  // dark recesses and selective plywood infill, not full-height OSB hallway walls.
   for (const side of [-1, 1]) {
-    const x = side * 3.30;
-    box(root, [0.11, 2.72, 4.35], [x, 1.42,  0.82], osb, [0, 0, side * 0.002]);
-    box(root, [0.11, 2.72, 4.25], [x, 1.42, -3.72], osb, [0, 0, side * -0.003]);
-    box(root, [0.11, 2.72, 4.00], [x, 1.42, -8.00], osb, [0, 0, side * 0.0025]);
+    const backX = side * 3.46;
+    const frontX = side * 3.20;
 
-    // top + bottom plates make the wall read as assembled construction.
-    box(root, [0.18, 0.10, 13.45], [x - side * 0.055, 2.80, -3.15], woodLight);
-    box(root, [0.18, 0.10, 13.45], [x - side * 0.055, 0.10, -3.15], woodLight);
+    // Deep dark backing preserves collision/closure while letting the visible face read as open bays.
+    box(root,[.12,2.72,13.45],[backX,1.42,-3.15],recessMat);
 
-    // Visible studs with non-perfect spacing and doubled door framing.
-    const zs = [2.75, 1.85, 0.95, 0.02, -1.05, -2.03, -3.15, -4.18, -5.08, -6.18, -7.15, -8.18, -9.15];
-    zs.forEach((z, i) => {
-      const lean = ((i % 4) - 1.5) * 0.0017 * side;
-      const depth = 0.135 + (i % 3) * 0.007;
-      box(root, [0.105, 2.56 + (i % 2) * 0.015, depth], [x - side * 0.12, 1.43, z], i % 5 === 0 ? woodLight : wood, [lean, 0, lean * 0.6]);
+    // Concrete curb and upper spandrel tie the bays together as one building.
+    box(root,[.22,.48,13.45],[frontX,.24,-3.15],concreteWall);
+    box(root,[.20,.42,13.45],[frontX,2.55,-3.15],concreteWall);
+
+    const bayZ=[2.55,.85,-.85,-2.55,-4.25,-5.95,-7.65,-9.30];
+    bayZ.forEach((z,i)=>{
+      // Heavy pier.
+      box(root,[.34,2.48,.34],[frontX,1.39,z],concreteWall,[0,0,((i%3)-1)*.0018]);
+
+      // Steel scar/strap breaks the concrete and catches cool practical highlights.
+      if(i%2===0) box(root,[.035,1.54,.36],[frontX-side*.185,1.36,z],steel,[0,0,.01*side]);
+
+      // Only some bays get plywood; the rest stay visibly recessed/open.
+      if([0,2,5,7].includes(i)){
+        const panelZ=z-.72;
+        const panelH=i===5?1.18:1.42;
+        box(root,[.08,panelH,1.18],[frontX-side*.08,panelH*.5+.10,panelZ],osb,[0,.004*side,((i%2)?-.008:.006)]);
+        box(root,[.095,.085,1.26],[frontX-side*.09,panelH+.13,panelZ],woodDark);
+        for(const fz of [panelZ-.48,panelZ+.48]){
+          box(root,[.10,panelH+.06,.08],[frontX-side*.095,panelH*.5+.10,fz],woodDark);
+        }
+      }
+
+      // A couple low concrete infills make the construction non-repeating.
+      if(i===3 || i===6){
+        box(root,[.11,.78,1.05],[frontX-side*.07,.63,z-.68],concreteWall,[0,0,(i===3?.012:-.009)]);
+      }
     });
+
+    // Horizontal steel rails/pipes give continuous scale cues without becoming a solid wall.
+    box(root,[.055,.055,12.4],[frontX-side*.19,1.96,-3.20],steel,[0,0,.006*side]);
+    box(root,[.048,.048,10.8],[frontX-side*.20,1.18,-3.35],steel,[0,0,-.004*side]);
   }
 
-  // Door opening that is actually framed: jack studs + doubled header.
+  // One authored service-frame bay on each side; steel/concrete, not a perfect wood portal.
   for (const side of [-1, 1]) {
-    const x = side * 3.16;
-    box(root, [0.12, 2.23, 0.15], [x, 1.215, -1.55], woodDark);
-    box(root, [0.12, 2.23, 0.15], [x, 1.215, -2.53], woodDark);
-    box(root, [0.15, 0.19, 1.16], [x, 2.38, -2.04], woodLight);
-    box(root, [0.15, 0.13, 1.16], [x, 2.56, -2.04], wood);
+    const x = side * 3.02;
+    box(root,[.16,2.12,.16],[x,1.16,-1.50],steel,[0,0,.006*side]);
+    box(root,[.16,2.12,.16],[x,1.16,-2.55],steel,[0,0,-.005*side]);
+    box(root,[.20,.22,1.25],[x,2.25,-2.02],concreteWall,[0,0,.004*side]);
+    box(root,[.08,.08,1.02],[x-side*.10,2.09,-2.02],steel);
   }
 
   // A7 heavy concrete structure: these are the dominant masses from the BODYCAM target.
@@ -714,6 +740,22 @@ function buildHeroHall(maxAniso: number) {
     box(stairRoot,[.045,.045,2.85],[x,2.36,-1.20],steel,[.37,0,0]);
   }
   box(stairRoot,[1.12,.045,.045],[0,2.36,-2.30],steel);
+
+  // Far upper catwalk: a strong second level visible from spawn like the BODYCAM target.
+  const catwalk = new THREE.Group();
+  catwalk.position.set(0,0,-8.82);
+  root.add(catwalk);
+  box(catwalk,[5.35,.14,1.12],[0,1.80,0],steel);
+  box(catwalk,[5.42,.22,.18],[0,1.63,-.48],concreteWall);
+  for(const x of [-2.52,-1.72,-.86,0,.86,1.72,2.52]){
+    box(catwalk,[.045,.78,.045],[x,2.20,-.42],steel);
+  }
+  box(catwalk,[5.22,.045,.045],[0,2.58,-.42],steel);
+  box(catwalk,[5.22,.035,.035],[0,2.30,-.42],steel);
+  // Occlusion breaks underneath so it reads as a built level, not a floating shelf.
+  for(const x of [-2.05,-.70,.72,2.02]){
+    box(catwalk,[.26,1.66,.30],[x,.86,.26],concreteWall,[0,0,(x>0?.003:-.003)]);
+  }
 
   // Open ceiling structure: beams, joists, gaps, and partial dark panels.
   const ceilingY = 2.96;
@@ -783,7 +825,7 @@ function buildHeroHall(maxAniso: number) {
   const warmFixture = new THREE.MeshStandardMaterial({
     color:0x3a3028, emissive:0xffb875, emissiveIntensity:.72, roughness:.70, metalness:.18
   });
-  for (const [x,z] of [[-3.17,-1.02],[3.17,-5.08],[-3.17,-8.60]] as Array<[number,number]>) {
+  for (const [x,z] of [[-3.08,-1.02],[3.08,-5.08]] as Array<[number,number]>) {
     box(root,[.10,.26,.22],[x,1.46,z],housingMat);
     box(root,[.018,.13,.13],[x + (x<0?.058:-.058),1.46,z],warmFixture);
   }
@@ -953,9 +995,9 @@ async function main() {
     world.createTransformEntity(spill,{persistent:true});
   }
 
-  const warmSources: Array<[number,number]> = [[-3.08,-1.02],[3.08,-5.08],[-3.08,-8.60]];
+  const warmSources: Array<[number,number]> = [[-3.02,-1.02],[3.02,-5.08]];
   warmSources.forEach(([x,z])=>{
-    const warm = new THREE.PointLight(0xffc18a,.34,2.7,2.0);
+    const warm = new THREE.PointLight(0xffc18a,.24,2.45,2.0);
     warm.position.set(x,1.46,z);
     warm.castShadow=false;
     world.createTransformEntity(warm,{persistent:true});
@@ -969,14 +1011,14 @@ async function main() {
 
   const nativeXR = Boolean(navigator.xr);
   if (boot) boot.textContent = nativeXR
-    ? 'NEXUS IWSDK A8 · AUTHORED GRAFFITI · QUEST'
-    : 'NEXUS A8 · WEBXR NOT AVAILABLE';
+    ? 'NEXUS IWSDK A9 · CONCRETE ARENA REBUILD · QUEST'
+    : 'NEXUS A9 · WEBXR NOT AVAILABLE';
 
   world.renderer.xr.addEventListener('sessionstart', () => {
-    if (boot) boot.textContent = 'NEXUS A8 · VR LIVE · GRAFFITI PASS';
+    if (boot) boot.textContent = 'NEXUS A9 · VR LIVE · STRUCTURAL REBUILD';
   });
   world.renderer.xr.addEventListener('sessionend', () => {
-    if (boot) boot.textContent = 'NEXUS A8 · VR EXITED · READY TO RE-ENTER';
+    if (boot) boot.textContent = 'NEXUS A9 · VR EXITED · READY TO RE-ENTER';
   });
 }
 
