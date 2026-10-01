@@ -7,7 +7,7 @@ declare global {
   interface Window { __NEXUS_IWSDK_BUILD?: string; }
 }
 
-const BUILD = 'iwsdk-a7-quest-reference-match';
+const BUILD = 'iwsdk-a8-authored-graffiti-pass';
 window.__NEXUS_IWSDK_BUILD = BUILD;
 
 function box(
@@ -465,9 +465,83 @@ function addLivedInDetail(
   void concrete;
 }
 
+
+function addAuthoredGraffiti(root: THREE.Group, maxAniso: number) {
+  const loader = new THREE.TextureLoader();
+  const urls = [
+    './assets/graffiti/tag0.svg',
+    './assets/graffiti/tag1.svg',
+    './assets/graffiti/tag2.svg',
+    './assets/graffiti/tag3.svg',
+  ];
+  const textures = urls.map((url) => {
+    const tex = loader.load(url);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = maxAniso;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.generateMipmaps = true;
+    return tex;
+  });
+
+  const makeMat = (index: number, opacity: number) => new THREE.MeshStandardMaterial({
+    map: textures[index],
+    color: 0xd8d2c7,
+    transparent: true,
+    opacity,
+    alphaTest: .035,
+    depthWrite: false,
+    roughness: .96,
+    metalness: 0,
+    side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: -3,
+  });
+
+  // Sparse, site-specific tags. None are tiled; each one is its own authored mark.
+  // They sit slightly proud of the surface to avoid z-fighting in Quest.
+  const sideTags: Array<[number,number,number,number,number,number,number]> = [
+    [-3.361,1.52, .15, 1.04,.72, 0, .48],
+    [ 3.361,1.34,-2.72, .88,.66, 1, .38],
+    [-3.361,1.68,-5.88, .82,.58, 3, .28],
+  ];
+  sideTags.forEach(([x,y,z,w,h,idx,opacity],i)=>{
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w,h), makeMat(idx,opacity));
+    mesh.position.set(x,y,z);
+    mesh.rotation.y = x < 0 ? Math.PI/2 : -Math.PI/2;
+    mesh.rotation.z = [ .035, -.055, .025 ][i] ?? 0;
+    mesh.renderOrder = 2;
+    root.add(mesh);
+  });
+
+  // One far-lane tag gives the eye a scale cue without turning the arena into a graffiti gallery.
+  const far = new THREE.Mesh(new THREE.PlaneGeometry(.76,.58), makeMat(2,.30));
+  far.position.set(1.72,1.48,-9.932);
+  far.rotation.z = -.018;
+  far.renderOrder = 2;
+  root.add(far);
+
+  // Dirty overspray halos break the clean SVG edge just enough to sit inside the environment.
+  const haloMat = new THREE.MeshBasicMaterial({
+    color:0x211d19, transparent:true, opacity:.07, depthWrite:false, side:THREE.DoubleSide
+  });
+  for(const [x,y,z,w,h,rz] of [
+    [-3.359,1.51,.15,1.16,.82,.035],
+    [ 3.359,1.33,-2.72,.99,.75,-.055],
+    [-3.359,1.68,-5.88,.92,.66,.025],
+  ] as Array<[number,number,number,number,number,number]>){
+    const g=new THREE.Mesh(new THREE.PlaneGeometry(w,h),haloMat);
+    g.position.set(x + (x<0?.001:-.001),y,z);
+    g.rotation.y=x<0?Math.PI/2:-Math.PI/2;
+    g.rotation.z=rz;
+    g.renderOrder=1;
+    root.add(g);
+  }
+}
+
 function buildHeroHall(maxAniso: number) {
   const root = new THREE.Group();
-  root.name = 'NEXUS_HERO_HALL_A7';
+  root.name = 'NEXUS_HERO_HALL_A8';
 
   const woodMap = makeWoodMap(maxAniso, false);
   const woodLightMap = makeWoodMap(maxAniso, true);
@@ -779,6 +853,7 @@ function buildHeroHall(maxAniso: number) {
   box(root,[2.8,.10,.12],[1.45,2.25,-5.35],woodDark,[0,0,THREE.MathUtils.degToRad(-7)]);
 
   addLivedInDetail(root,maxAniso,concreteWall,woodDark,steel);
+  addAuthoredGraffiti(root,maxAniso);
 
   // Quest-safe fake reflection streaks. They only reinforce practicals on wet patches;
   // they do not pretend to be full planar reflections.
@@ -894,14 +969,14 @@ async function main() {
 
   const nativeXR = Boolean(navigator.xr);
   if (boot) boot.textContent = nativeXR
-    ? 'NEXUS IWSDK A7 · QUEST REFERENCE MATCH · WET LIGHT'
-    : 'NEXUS A7 · WEBXR NOT AVAILABLE';
+    ? 'NEXUS IWSDK A8 · AUTHORED GRAFFITI · QUEST'
+    : 'NEXUS A8 · WEBXR NOT AVAILABLE';
 
   world.renderer.xr.addEventListener('sessionstart', () => {
-    if (boot) boot.textContent = 'NEXUS A7 · VR LIVE · REFERENCE MATCH';
+    if (boot) boot.textContent = 'NEXUS A8 · VR LIVE · GRAFFITI PASS';
   });
   world.renderer.xr.addEventListener('sessionend', () => {
-    if (boot) boot.textContent = 'NEXUS A7 · VR EXITED · READY TO RE-ENTER';
+    if (boot) boot.textContent = 'NEXUS A8 · VR EXITED · READY TO RE-ENTER';
   });
 }
 
