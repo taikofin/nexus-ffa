@@ -7,7 +7,7 @@ declare global {
   interface Window { __NEXUS_IWSDK_BUILD?: string; }
 }
 
-const BUILD = 'iwsdk-a5-wet-industrial-cohesion';
+const BUILD = 'iwsdk-a6-lived-in-bodycam-lighting';
 window.__NEXUS_IWSDK_BUILD = BUILD;
 
 function box(
@@ -166,9 +166,308 @@ function makeRoofMap(maxAniso: number) {
   }, maxAniso, 2.0, 2.0);
 }
 
+
+function makeDecalTexture(
+  maxAniso: number,
+  kind: 'scorch' | 'grime' | 'splatter',
+  seed: number,
+) {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, size, size);
+
+  if (kind === 'scorch') {
+    for (let i = 0; i < 8; i++) {
+      const x = size * (.32 + hashNoise(i, 7, seed) * .36);
+      const y = size * (.34 + hashNoise(i, 11, seed + 2) * .32);
+      const r = 18 + hashNoise(i, 17, seed + 5) * 62;
+      const g = ctx.createRadialGradient(x, y, r * .08, x, y, r);
+      g.addColorStop(0, 'rgba(22,15,11,.62)');
+      g.addColorStop(.34, 'rgba(39,25,17,.34)');
+      g.addColorStop(.72, 'rgba(52,39,29,.12)');
+      g.addColorStop(1, 'rgba(52,39,29,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x-r, y-r, r*2, r*2);
+    }
+  } else if (kind === 'grime') {
+    for (let i = 0; i < 65; i++) {
+      const x = hashNoise(i, 5, seed) * size;
+      const y = hashNoise(i, 9, seed + 7) * size;
+      const w = 4 + hashNoise(i, 13, seed + 3) * 46;
+      const h = 1 + hashNoise(i, 15, seed + 11) * 7;
+      ctx.fillStyle = `rgba(25,23,20,${.035 + hashNoise(i,19,seed)*.12})`;
+      ctx.fillRect(x, y, w, h);
+    }
+    for (let i = 0; i < 14; i++) {
+      const x = hashNoise(i, 23, seed) * size;
+      const y = hashNoise(i, 29, seed + 4) * size;
+      const len = 18 + hashNoise(i, 31, seed + 9) * 80;
+      const grad = ctx.createLinearGradient(x, y, x, y + len);
+      grad.addColorStop(0, 'rgba(30,25,21,.16)');
+      grad.addColorStop(1, 'rgba(30,25,21,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(x, y, 2 + hashNoise(i,37,seed)*5, len);
+    }
+  } else {
+    for (let i = 0; i < 130; i++) {
+      const x = size * (.12 + hashNoise(i, 3, seed) * .76);
+      const y = size * (.12 + hashNoise(i, 7, seed + 6) * .76);
+      const r = .6 + hashNoise(i, 11, seed + 10) * 4.2;
+      ctx.fillStyle = `rgba(21,18,16,${.10 + hashNoise(i,13,seed)*.28})`;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAniso;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = true;
+  return tex;
+}
+
+function makeDustTexture() {
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const g = ctx.createRadialGradient(size/2,size/2,0,size/2,size/2,size/2);
+  g.addColorStop(0,'rgba(235,239,237,.42)');
+  g.addColorStop(.35,'rgba(221,226,224,.20)');
+  g.addColorStop(1,'rgba(221,226,224,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0,0,size,size);
+  return new THREE.CanvasTexture(canvas);
+}
+
+function makeJaggedMark(radius: number, seed: number) {
+  const shape = new THREE.Shape();
+  const points = 12;
+  for (let i = 0; i < points; i++) {
+    const a = (i / points) * Math.PI * 2;
+    const rr = radius * (.58 + hashNoise(i, 41, seed) * .48);
+    const x = Math.cos(a) * rr;
+    const y = Math.sin(a) * rr;
+    if (i === 0) shape.moveTo(x, y);
+    else shape.lineTo(x, y);
+  }
+  shape.closePath();
+  return new THREE.ShapeGeometry(shape);
+}
+
+function makeBatteredBarrier(width: number, height: number, depth: number, seed: number) {
+  const shape = new THREE.Shape();
+  const topA = height * (.40 + hashNoise(seed, 3, 4) * .08);
+  const topB = height * (.43 + hashNoise(seed, 5, 7) * .06);
+  const inset = Math.min(.10, width * .08);
+  shape.moveTo(-width/2 + inset, -height/2);
+  shape.lineTo(width/2 - inset*.5, -height/2);
+  shape.lineTo(width/2, -height/2 + inset);
+  shape.lineTo(width/2 - inset*.35, topB);
+  shape.lineTo(width*.18, height/2);
+  shape.lineTo(-width*.14, height*.47);
+  shape.lineTo(-width*.42, topA);
+  shape.lineTo(-width/2, height*.28);
+  shape.lineTo(-width/2, -height/2 + inset*.7);
+  shape.closePath();
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth,
+    bevelEnabled: true,
+    bevelSegments: 1,
+    bevelSize: .018,
+    bevelThickness: .012,
+    curveSegments: 1,
+  });
+  geo.center();
+  return geo;
+}
+
+function makeSilhouetteTarget() {
+  const sh = new THREE.Shape();
+  sh.moveTo(-.16,-.41);
+  sh.lineTo(.16,-.41);
+  sh.lineTo(.20,-.12);
+  sh.lineTo(.27,.02);
+  sh.lineTo(.21,.23);
+  sh.lineTo(.10,.31);
+  sh.lineTo(.10,.39);
+  sh.bezierCurveTo(.10,.52,-.10,.52,-.10,.39);
+  sh.lineTo(-.10,.31);
+  sh.lineTo(-.21,.23);
+  sh.lineTo(-.27,.02);
+  sh.lineTo(-.20,-.12);
+  sh.closePath();
+  const geo = new THREE.ExtrudeGeometry(sh, {
+    depth: .035,
+    bevelEnabled: true,
+    bevelSegments: 1,
+    bevelSize: .007,
+    bevelThickness: .006,
+    curveSegments: 4,
+  });
+  geo.center();
+  return geo;
+}
+
+function addLivedInDetail(
+  root: THREE.Group,
+  maxAniso: number,
+  concrete: THREE.Material,
+  woodDark: THREE.Material,
+  steel: THREE.Material,
+) {
+  const decalMaterial = (kind: 'scorch'|'grime'|'splatter', seed: number, opacity: number) =>
+    new THREE.MeshStandardMaterial({
+      map: makeDecalTexture(maxAniso, kind, seed),
+      transparent: true,
+      opacity,
+      depthWrite: false,
+      roughness: kind === 'scorch' ? .96 : .88,
+      metalness: 0,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      side: THREE.DoubleSide,
+    });
+
+  const wallDecals: Array<[number,number,number,number,number,'scorch'|'grime'|'splatter',number]> = [
+    [-3.354,1.10, 1.20,1.15,.90,'grime',12],
+    [ 3.354,1.56,-.80, .78,.68,'scorch',22],
+    [-3.354,.88,-3.76,1.34,.80,'splatter',31],
+    [ 3.354,.66,-5.58,1.46,.62,'grime',43],
+    [-3.354,1.82,-7.05,.86,.74,'scorch',57],
+    [ 3.354,1.30,-8.76,1.08,.72,'splatter',69],
+  ];
+  wallDecals.forEach(([x,y,z,w,h,kind,seed], i) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w,h), decalMaterial(kind, seed, kind==='scorch'?.66:.54));
+    m.position.set(x,y,z);
+    m.rotation.y = x < 0 ? Math.PI/2 : -Math.PI/2;
+    m.rotation.z = ((i%3)-1)*.06;
+    root.add(m);
+  });
+
+  const floorDecals: Array<[number,number,number,number,'grime'|'scorch',number]> = [
+    [-1.85,-2.20,1.25,.72,'grime',81],
+    [ .95,-4.62,1.05,.66,'scorch',88],
+    [-.20,-7.54,1.45,.74,'grime',94],
+  ];
+  floorDecals.forEach(([x,z,w,h,kind,seed],i)=>{
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w,h), decalMaterial(kind,seed,.43));
+    m.rotation.x = -Math.PI/2;
+    m.rotation.z = (i-1)*.18;
+    m.position.set(x,.008,z);
+    root.add(m);
+  });
+
+  // Jagged impact cavities with a second, smaller center for actual depth read.
+  const holes: Array<[number,number,number,number,number]> = [
+    [-3.357,1.52,-.12,.075,101],
+    [ 3.357,1.18,-2.98,.055,102],
+    [-3.357,.72,-6.32,.085,103],
+    [ 3.357,1.92,-8.22,.064,104],
+    [-3.357,2.15,-8.58,.048,105],
+  ];
+  holes.forEach(([x,y,z,r,seed])=>{
+    const rimMat = new THREE.MeshBasicMaterial({color:0x302b27,transparent:true,opacity:.92,side:THREE.DoubleSide});
+    const centerMat = new THREE.MeshBasicMaterial({color:0x090a0a,transparent:true,opacity:.92,side:THREE.DoubleSide});
+    const rim = new THREE.Mesh(makeJaggedMark(r,seed),rimMat);
+    const center = new THREE.Mesh(makeJaggedMark(r*.48,seed+30),centerMat);
+    rim.position.set(x,y,z); center.position.set(x + (x<0?.001:-.001),y,z);
+    rim.rotation.y = center.rotation.y = x<0 ? Math.PI/2 : -Math.PI/2;
+    root.add(rim,center);
+  });
+
+  // Rubble / trash: small, irregular enough to read as debris instead of spawned primitives.
+  const debrisMat = new THREE.MeshStandardMaterial({color:0x4a4640,roughness:.98,metalness:0});
+  for (let i=0;i<22;i++) {
+    const geo = new THREE.IcosahedronGeometry(.05 + hashNoise(i,3,111)*.07,0);
+    const p = geo.attributes.position;
+    for(let v=0;v<p.count;v++){
+      p.setXYZ(v,p.getX(v)*(1.2+hashNoise(v,i,5)*.9),p.getY(v)*(.45+hashNoise(v,i,8)*.7),p.getZ(v)*(.7+hashNoise(v,i,13)*.8));
+    }
+    geo.computeVertexNormals();
+    const rock = new THREE.Mesh(geo,debrisMat);
+    const side = i%2 ? 1 : -1;
+    rock.position.set(side*(2.55+hashNoise(i,19,3)*.42),.04+hashNoise(i,23,7)*.04,2.1-hashNoise(i,29,9)*11.0);
+    rock.rotation.set(hashNoise(i,31,2)*2,hashNoise(i,37,4)*3,hashNoise(i,41,6)*2);
+    rock.castShadow=true; rock.receiveShadow=true;
+    root.add(rock);
+  }
+
+  // Torn paper and a bent cable add recognizable scale objects.
+  const paperMat = new THREE.MeshStandardMaterial({color:0xafa99d,roughness:.96,metalness:0,side:THREE.DoubleSide});
+  for(let i=0;i<5;i++){
+    const geo = new THREE.PlaneGeometry(.18+hashNoise(i,3,140)*.12,.24+hashNoise(i,5,145)*.16,2,2);
+    const p = geo.attributes.position;
+    for(let v=0;v<p.count;v++) p.setZ(v,(hashNoise(v,i,151)-.5)*.045);
+    geo.computeVertexNormals();
+    const paper = new THREE.Mesh(geo,paperMat);
+    paper.rotation.set(-Math.PI/2 + (hashNoise(i,7,156)-.5)*.18,0,hashNoise(i,9,160)*Math.PI);
+    paper.position.set(-1.9 + hashNoise(i,11,164)*3.8,.026,-1.6-hashNoise(i,13,168)*7.0);
+    root.add(paper);
+  }
+
+  const cableCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-2.86,.035,-1.05),
+    new THREE.Vector3(-2.20,.026,-1.72),
+    new THREE.Vector3(-2.54,.030,-2.50),
+    new THREE.Vector3(-1.76,.027,-3.30),
+    new THREE.Vector3(-2.25,.031,-4.02),
+  ]);
+  const cable = new THREE.Mesh(
+    new THREE.TubeGeometry(cableCurve,30,.016,7,false),
+    new THREE.MeshStandardMaterial({color:0x171818,roughness:.82,metalness:.18})
+  );
+  cable.castShadow=true; cable.receiveShadow=true; root.add(cable);
+
+  // Suspended dust gives the practicals something to catch without building fake fog walls.
+  const dustGeo = new THREE.BufferGeometry();
+  const dust = new Float32Array(150*3);
+  for(let i=0;i<150;i++){
+    dust[i*3+0] = -2.9 + hashNoise(i,3,180)*5.8;
+    dust[i*3+1] = .25 + hashNoise(i,5,184)*2.45;
+    dust[i*3+2] = 2.5 - hashNoise(i,7,188)*12.2;
+  }
+  dustGeo.setAttribute('position',new THREE.BufferAttribute(dust,3));
+  const dustMat = new THREE.PointsMaterial({
+    map: makeDustTexture(),
+    color:0xcfd7d5,
+    size:.045,
+    transparent:true,
+    opacity:.12,
+    depthWrite:false,
+    blending:THREE.AdditiveBlending,
+    sizeAttenuation:true,
+  });
+  root.add(new THREE.Points(dustGeo,dustMat));
+
+  // Broken scrap leaning against a wall: authored silhouette and layered thickness.
+  const scrapGeo = makeBatteredBarrier(.72,1.05,.055,211);
+  const scrap = new THREE.Mesh(scrapGeo,woodDark);
+  scrap.position.set(-3.04,.53,-5.88);
+  scrap.rotation.set(.02,.28,-.09);
+  scrap.castShadow=true; scrap.receiveShadow=true;
+  root.add(scrap);
+
+  // Small steel plates around the far lane break clean construction repetition.
+  for(let i=0;i<4;i++){
+    const plate = new THREE.Mesh(makeBatteredBarrier(.34,.26,.018,230+i),steel);
+    plate.position.set(-1.9+i*1.18,.14+((i%2)*.12),-9.72+(i%2)*.10);
+    plate.rotation.set(.06*i,.08*(i-1),.11*(i%2?-1:1));
+    plate.castShadow=true; plate.receiveShadow=true;
+    root.add(plate);
+  }
+
+  void concrete;
+}
+
 function buildHeroHall(maxAniso: number) {
   const root = new THREE.Group();
-  root.name = 'NEXUS_HERO_HALL_A4';
+  root.name = 'NEXUS_HERO_HALL_A6';
 
   const woodMap = makeWoodMap(maxAniso, false);
   const woodLightMap = makeWoodMap(maxAniso, true);
@@ -385,30 +684,50 @@ function buildHeroHall(maxAniso: number) {
   box(root, [5.4, 0.012, 0.075], [0.3, 0.008, -4.82], seamMat, [0, 0.03, 0]);
   box(root, [3.7, 0.012, 0.06], [-0.8, 0.009, -7.32], seamMat, [0, -0.045, 0]);
 
-  // Bright practical fixtures against the darker open ceiling.
-  const lightMat = new THREE.MeshStandardMaterial({
-    color: 0xdfe7e8,
-    emissive: 0xf2fbff,
-    emissiveIntensity: 2.2,
-    roughness: 0.58,
+  // Authored fluorescent practicals: dark housing, clips and recessed diffuser.
+  // This keeps the lamp from reading as a floating white card in the Quest capture.
+  const housingMat = new THREE.MeshStandardMaterial({
+    color:0x2c3032, roughness:.58, metalness:.62, envMapIntensity:.24
+  });
+  const diffuserMat = new THREE.MeshStandardMaterial({
+    color:0xe7eeee, emissive:0xdff6ff, emissiveIntensity:1.55, roughness:.72, metalness:0
   });
   for (const z of [0.85, -3.15, -7.10]) {
-    box(root, [0.16, 0.055, 1.55], [0.0, 2.82, z], lightMat);
+    box(root,[.28,.075,1.72],[0,2.835,z],housingMat);
+    box(root,[.205,.024,1.48],[0,2.785,z],diffuserMat);
+    box(root,[.30,.10,.065],[0,2.82,z-.82],housingMat);
+    box(root,[.30,.10,.065],[0,2.82,z+.82],housingMat);
+    box(root,[.035,.11,1.56],[-.14,2.83,z],housingMat);
+    box(root,[.035,.11,1.56],[ .14,2.83,z],housingMat);
   }
 
-  // A3 TRICK-SHOT ACTION LANE
-  // The hallway is now a shooting/action set, not the purpose of the game.
+  // Restrained warm practicals exist as fixtures instead of unexplained orange fill.
+  const warmFixture = new THREE.MeshStandardMaterial({
+    color:0x3a3028, emissive:0xffb875, emissiveIntensity:.72, roughness:.70, metalness:.18
+  });
+  for (const [x,z] of [[-3.17,-1.02],[3.17,-5.08],[-3.17,-8.60]] as Array<[number,number]>) {
+    box(root,[.10,.26,.22],[x,1.46,z],housingMat);
+    box(root,[.018,.13,.13],[x + (x<0?.058:-.058),1.46,z],warmFixture);
+  }
+
+  // A6 action lane: chipped construction forms and human-silhouette steel,
+  // replacing the obvious box/cylinder/torus read from earlier passes.
   box(root, [6.20, 2.85, 0.22], [0, 1.42, -10.05], concreteWall);
 
-  // Low cover / vault pieces for dives and camera movement.
-  box(root, [1.55, 0.72, 0.42], [-1.35, .36, -4.25], concreteWall, [0, .08, 0]);
-  box(root, [1.15, 0.48, 0.36], [ 1.55, .24, -6.10], concreteWall, [0,-.12, 0]);
-  box(root, [0.84, 1.05, 0.34], [-1.75, .525,-8.00], concreteWall, [0,.04,0]);
+  const barriers: Array<[number,number,number,number,number,number]> = [
+    [-1.35,.36,-4.25,1.55,.72,.42],
+    [ 1.55,.24,-6.10,1.15,.48,.36],
+    [-1.75,.525,-8.00,.84,1.05,.34]
+  ];
+  barriers.forEach(([x,y,z,w,h,d],i)=>{
+    const mesh = new THREE.Mesh(makeBatteredBarrier(w,h,d,300+i),concreteWall);
+    mesh.position.set(x,y,z);
+    mesh.rotation.y=[.08,-.12,.04][i];
+    mesh.castShadow=true; mesh.receiveShadow=true;
+    root.add(mesh);
+  });
 
-  const targetGeo = new THREE.CylinderGeometry(.19,.19,.032,24);
-  targetGeo.rotateX(Math.PI/2);
-  const ringGeo = new THREE.TorusGeometry(.19,.012,8,24);
-
+  const targetGeo = makeSilhouetteTarget();
   const targets: Array<[number,number,number,number]> = [
     [-1.85,1.35,-7.25,-.08],
     [ 1.62,1.82,-7.90, .09],
@@ -422,29 +741,31 @@ function buildHeroHall(maxAniso: number) {
     group.position.set(x,y,z);
     group.rotation.y=ry;
 
-    const plate=new THREE.Mesh(targetGeo,targetSteel);
+    const plate=new THREE.Mesh(targetGeo.clone(),targetSteel);
     plate.castShadow=true;
     plate.receiveShadow=true;
     group.add(plate);
 
-    const rim=new THREE.Mesh(ringGeo,targetEdge);
-    rim.position.z=.020;
-    rim.castShadow=true;
-    group.add(rim);
-
-    const hanger=new THREE.Mesh(
-      new RoundedBoxGeometry(.035,.58,.035,2,.004),
+    const backPlate=new THREE.Mesh(
+      makeBatteredBarrier(.30,.055,.055,340+i),
       targetEdge
     );
-    hanger.position.y=.43;
+    backPlate.position.set(0,.41,-.045);
+    group.add(backPlate);
+
+    const hanger=new THREE.Mesh(
+      new RoundedBoxGeometry(.040,.56,.040,2,.004),
+      targetEdge
+    );
+    hanger.position.set(0,.64,-.025);
     hanger.castShadow=true;
     group.add(hanger);
 
     const top=new THREE.Mesh(
-      new RoundedBoxGeometry(.34,.035,.035,2,.004),
+      new RoundedBoxGeometry(.38,.040,.040,2,.004),
       targetEdge
     );
-    top.position.set(0,.72,0);
+    top.position.set(0,.91,-.025);
     group.add(top);
 
     root.add(group);
@@ -452,6 +773,8 @@ function buildHeroHall(maxAniso: number) {
 
   // One angled overhead beam gives a real visual cue for dive-under / trick-shot lines.
   box(root,[2.8,.10,.12],[1.45,2.25,-5.35],woodDark,[0,0,THREE.MathUtils.degToRad(-7)]);
+
+  addLivedInDetail(root,maxAniso,concreteWall,woodDark,steel);
 
   return root;
 }
@@ -464,13 +787,13 @@ async function main() {
   world.renderer.shadowMap.enabled = true;
   world.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   world.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  world.renderer.toneMappingExposure = 1.01;
+  world.renderer.toneMappingExposure = 1.04;
   world.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-  const hemi = new THREE.HemisphereLight(0xd9dfe0, 0x211d18, 0.56);
+  const hemi = new THREE.HemisphereLight(0xdce5e7, 0x29231e, 0.44);
   world.createTransformEntity(hemi, { persistent: true });
 
-  const key = new THREE.DirectionalLight(0xf4f7f7, 1.62);
+  const key = new THREE.DirectionalLight(0xeef3f3, 0.82);
   key.position.set(-1.8, 7.0, 1.0);
   key.castShadow = true;
   key.shadow.mapSize.set(1024, 1024);
@@ -488,35 +811,49 @@ async function main() {
   const hallEntity = world.createTransformEntity(hall);
   hallEntity.addComponent(LocomotionEnvironment, { type: EnvironmentType.STATIC });
 
-  // A5 keeps readable A4 exposure while tightening practical pools around the wetter floor.
-  // The point is readable shadow information, not a flat globally-lit room.
+  // A6: practical-driven lighting. Each fluorescent has a downward source plus a
+  // weaker omnidirectional fill, so the room is shaped by fixtures rather than a global cheat.
   for (const z of [0.85, -3.15, -7.10]) {
-    const practical = new THREE.PointLight(0xeaf5f8, 1.02, 5.8, 2.0);
-    practical.position.set(0, 2.60, z);
-    practical.castShadow = false;
-    world.createTransformEntity(practical, { persistent: true });
+    const target = new THREE.Object3D();
+    target.position.set(0,.05,z-.12);
+    world.createTransformEntity(target,{persistent:true});
 
-    for (const side of [-1, 1]) {
-      const bounce = new THREE.PointLight(0xffd3a8, 0.15, 3.1, 2.0);
-      bounce.position.set(side * 2.68, 1.10, z - 0.25);
-      bounce.castShadow = false;
-      world.createTransformEntity(bounce, { persistent: true });
-    }
+    const down = new THREE.SpotLight(0xe8f7fb, 7.2, 6.8, Math.PI/3.5, .70, 1.45);
+    down.position.set(0,2.74,z);
+    down.target = target;
+    down.castShadow = false;
+    world.createTransformEntity(down,{persistent:true});
+
+    const spill = new THREE.PointLight(0xdce9ec,.66,4.25,1.8);
+    spill.position.set(0,2.48,z);
+    spill.castShadow=false;
+    world.createTransformEntity(spill,{persistent:true});
   }
 
-  // A4 deliberately fixes the scene before layering more action systems.
-  // Keep native tracked hands temporarily; custom dark-brown hand visuals come next
-  // rather than masking the environment/exposure problem with more effects.
+  const warmSources: Array<[number,number]> = [[-3.08,-1.02],[3.08,-5.08],[-3.08,-8.60]];
+  warmSources.forEach(([x,z])=>{
+    const warm = new THREE.PointLight(0xffb36f,.58,3.0,2.0);
+    warm.position.set(x,1.46,z);
+    warm.castShadow=false;
+    world.createTransformEntity(warm,{persistent:true});
+  });
+
+  // Very low far-lane lift prevents Quest black crush without flattening the room.
+  const farLift = new THREE.PointLight(0xb8c7c9,.20,4.6,2.0);
+  farLift.position.set(0,1.2,-8.8);
+  farLift.castShadow=false;
+  world.createTransformEntity(farLift,{persistent:true});
+
   const nativeXR = Boolean(navigator.xr);
   if (boot) boot.textContent = nativeXR
-    ? 'NEXUS IWSDK A5 · WET INDUSTRIAL · BODYCAM COHESION'
-    : 'NEXUS A5 · WEBXR NOT AVAILABLE';
+    ? 'NEXUS IWSDK A6 · LIVED-IN BODYCAM · PRACTICAL LIGHT'
+    : 'NEXUS A6 · WEBXR NOT AVAILABLE';
 
   world.renderer.xr.addEventListener('sessionstart', () => {
-    if (boot) boot.textContent = 'NEXUS A5 · VR LIVE · WET INDUSTRIAL PASS';
+    if (boot) boot.textContent = 'NEXUS A6 · VR LIVE · QUEST VISUAL CHECK';
   });
   world.renderer.xr.addEventListener('sessionend', () => {
-    if (boot) boot.textContent = 'NEXUS A5 · VR EXITED · READY TO RE-ENTER';
+    if (boot) boot.textContent = 'NEXUS A6 · VR EXITED · READY TO RE-ENTER';
   });
 }
 
