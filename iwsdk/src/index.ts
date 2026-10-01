@@ -7,7 +7,7 @@ declare global {
   interface Window { __NEXUS_IWSDK_BUILD?: string; }
 }
 
-const BUILD = 'iwsdk-a6-lived-in-bodycam-lighting';
+const BUILD = 'iwsdk-a7-quest-reference-match';
 window.__NEXUS_IWSDK_BUILD = BUILD;
 
 function box(
@@ -436,9 +436,9 @@ function addLivedInDetail(
   const dustMat = new THREE.PointsMaterial({
     map: makeDustTexture(),
     color:0xcfd7d5,
-    size:.045,
+    size:.062,
     transparent:true,
-    opacity:.12,
+    opacity:.22,
     depthWrite:false,
     blending:THREE.AdditiveBlending,
     sizeAttenuation:true,
@@ -467,7 +467,7 @@ function addLivedInDetail(
 
 function buildHeroHall(maxAniso: number) {
   const root = new THREE.Group();
-  root.name = 'NEXUS_HERO_HALL_A6';
+  root.name = 'NEXUS_HERO_HALL_A7';
 
   const woodMap = makeWoodMap(maxAniso, false);
   const woodLightMap = makeWoodMap(maxAniso, true);
@@ -493,8 +493,8 @@ function buildHeroHall(maxAniso: number) {
     roughness: .90, metalness: 0.0, envMapIntensity: .22
   });
   const floorMat = new THREE.MeshStandardMaterial({
-    color: 0x625f59, map: concreteMap, bumpMap: concreteMap, bumpScale: .006,
-    roughness: .96, metalness: 0.0, envMapIntensity: .16
+    color: 0x77736d, map: concreteMap, bumpMap: concreteMap, bumpScale: .006,
+    roughness: .78, metalness: 0.0, envMapIntensity: .24
   });
   const seamMat = new THREE.MeshStandardMaterial({
     color: 0x2d2b28, roughness: .98, metalness: 0.0, envMapIntensity: .08
@@ -507,14 +507,14 @@ function buildHeroHall(maxAniso: number) {
     color: 0x474b4c, roughness: .62, metalness: .58, envMapIntensity: .34
   });
   const wetConcrete = new THREE.MeshPhysicalMaterial({
-    color: 0x4b4946, map: concreteMap, bumpMap: concreteMap, bumpScale: .004,
-    roughness: .38, metalness: 0.0, clearcoat: .26, clearcoatRoughness: .20,
-    envMapIntensity: .30
+    color: 0x585652, map: concreteMap, bumpMap: concreteMap, bumpScale: .004,
+    roughness: .24, metalness: 0.0, clearcoat: .52, clearcoatRoughness: .14,
+    envMapIntensity: .52
   });
   const dampConcrete = new THREE.MeshPhysicalMaterial({
-    color: 0x57534e, map: concreteMap, bumpMap: concreteMap, bumpScale: .005,
-    roughness: .62, metalness: 0.0, clearcoat: .10, clearcoatRoughness: .34,
-    envMapIntensity: .22
+    color: 0x67635d, map: concreteMap, bumpMap: concreteMap, bumpScale: .005,
+    roughness: .46, metalness: 0.0, clearcoat: .22, clearcoatRoughness: .26,
+    envMapIntensity: .34
   });
 
   // Tiny edge bevels matter a lot in bodycam lighting. Real lumber never has infinitely sharp edges.
@@ -524,20 +524,20 @@ function buildHeroHall(maxAniso: number) {
   steel.userData.edgeRadius = .004;
 
   const concreteWall = new THREE.MeshStandardMaterial({
-    color: 0x56534f,
+    color: 0x6f6b65,
     map: concreteMap,
     bumpMap: concreteMap,
-    bumpScale: .007,
-    roughness: .96,
+    bumpScale: .009,
+    roughness: .88,
     metalness: 0,
-    envMapIntensity: .12
+    envMapIntensity: .20
   });
 
   const targetSteel = new THREE.MeshStandardMaterial({
-    color: 0x626568,
-    roughness: .48,
-    metalness: .72,
-    envMapIntensity: .42
+    color: 0x45484a,
+    roughness: .44,
+    metalness: .76,
+    envMapIntensity: .52
   });
   targetSteel.userData.edgeRadius = .003;
 
@@ -603,22 +603,26 @@ function buildHeroHall(maxAniso: number) {
     box(root, [0.15, 0.13, 1.16], [x, 2.56, -2.04], wood);
   }
 
-  // Timber pillars: thicker, layered, joined, and not laser-identical.
+  // A7 heavy concrete structure: these are the dominant masses from the BODYCAM target.
+  // Existing wood framing remains as secondary construction instead of reading as the whole building.
   const pillars: Array<[number, number, number]> = [
-    [-2.82, 1.38, 1.45], [2.79, 1.39, -0.58], [-2.80, 1.40, -4.95], [2.83, 1.37, -7.55]
+    [-2.64, 1.45, 1.42], [2.62, 1.45, -0.70], [-2.63, 1.45, -4.82], [2.64, 1.45, -7.44]
   ];
-  pillars.forEach(([x, y, z], i) => {
+  pillars.forEach(([x,y,z],i)=>{
     const p = new THREE.Group();
-    p.position.set(x, y, z);
-    p.rotation.z = (i % 2 ? 1 : -1) * THREE.MathUtils.degToRad(0.35 + i * 0.07);
+    p.position.set(x,y,z);
+    p.rotation.z = (i%2?1:-1)*THREE.MathUtils.degToRad(.18);
     root.add(p);
-
-    box(p, [0.22, 2.72, 0.19], [0, 0, 0], i % 2 ? wood : woodLight);
-    box(p, [0.08, 2.34, 0.205], [0.145, -0.04, 0], woodDark);
-    box(p, [0.34, 0.105, 0.29], [0, -1.31, 0], woodDark);
-    box(p, [0.35, 0.11, 0.29], [0, 1.31, 0], woodLight);
-    box(p, [0.28, 0.06, 0.225], [0, 0.26, 0.105], steel, [0.02, 0, 0]);
+    box(p,[.52,2.90,.50],[0,0,0],concreteWall);
+    box(p,[.58,.12,.56],[0,-1.39,0],concreteWall);
+    box(p,[.58,.13,.56],[0,1.39,0],concreteWall);
+    box(p,[.12,1.72,.515],[.205,-.16,0], i%2 ? woodDark : steel);
   });
+
+  // Heavy cross-beams create the layered industrial ceiling depth visible in the reference.
+  for (const [z,xoff] of [[1.42,0],[-.70,.03],[-4.82,-.02],[-7.44,.02]] as Array<[number,number]>) {
+    box(root,[5.82,.38,.46],[xoff,2.72,z],concreteWall);
+  }
 
   // Industrial depth layer: stairs, landing and rails create overlapping silhouettes
   // like the reference rather than a single corridor vanishing point.
@@ -687,10 +691,10 @@ function buildHeroHall(maxAniso: number) {
   // Authored fluorescent practicals: dark housing, clips and recessed diffuser.
   // This keeps the lamp from reading as a floating white card in the Quest capture.
   const housingMat = new THREE.MeshStandardMaterial({
-    color:0x2c3032, roughness:.58, metalness:.62, envMapIntensity:.24
+    color:0x515659, roughness:.54, metalness:.66, envMapIntensity:.36
   });
   const diffuserMat = new THREE.MeshStandardMaterial({
-    color:0xe7eeee, emissive:0xdff6ff, emissiveIntensity:1.55, roughness:.72, metalness:0
+    color:0xe4ebec, emissive:0xd9f4ff, emissiveIntensity:1.18, roughness:.78, metalness:0
   });
   for (const z of [0.85, -3.15, -7.10]) {
     box(root,[.28,.075,1.72],[0,2.835,z],housingMat);
@@ -776,6 +780,50 @@ function buildHeroHall(maxAniso: number) {
 
   addLivedInDetail(root,maxAniso,concreteWall,woodDark,steel);
 
+  // Quest-safe fake reflection streaks. They only reinforce practicals on wet patches;
+  // they do not pretend to be full planar reflections.
+  const makeStreak = (warm=false) => {
+    const c=document.createElement('canvas'); c.width=64; c.height=256;
+    const cx=c.getContext('2d')!;
+    const g=cx.createLinearGradient(0,0,0,256);
+    g.addColorStop(0,'rgba(255,255,255,0)');
+    g.addColorStop(.20,warm?'rgba(255,186,118,.16)':'rgba(220,246,255,.18)');
+    g.addColorStop(.50,warm?'rgba(255,205,146,.42)':'rgba(236,251,255,.46)');
+    g.addColorStop(.80,warm?'rgba(255,186,118,.12)':'rgba(220,246,255,.14)');
+    g.addColorStop(1,'rgba(255,255,255,0)');
+    cx.fillStyle=g; cx.fillRect(0,0,64,256);
+    const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; return t;
+  };
+  const coolStreakMat = new THREE.MeshBasicMaterial({
+    map:makeStreak(false),transparent:true,opacity:.72,depthWrite:false,
+    blending:THREE.AdditiveBlending,side:THREE.DoubleSide
+  });
+  const warmStreakMat = new THREE.MeshBasicMaterial({
+    map:makeStreak(true),transparent:true,opacity:.58,depthWrite:false,
+    blending:THREE.AdditiveBlending,side:THREE.DoubleSide
+  });
+  for(const [x,z,w,l,rz] of [
+    [0,.82,.42,2.7,.02],[-.18,-3.12,.48,3.0,-.03],[.12,-7.05,.44,2.8,.04],
+    [2.00,-5.02,.28,1.35,-.18],[-2.05,-1.00,.25,1.10,.14]
+  ] as Array<[number,number,number,number,number]>){
+    const q=new THREE.Mesh(new THREE.PlaneGeometry(w,l), Math.abs(x)>1 ? warmStreakMat : coolStreakMat);
+    q.rotation.x=-Math.PI/2; q.rotation.z=rz; q.position.set(x,.011,z);
+    root.add(q);
+  }
+
+  // Very subtle translucent air cards under the main fluorescents.
+  const hazeTex=makeDustTexture();
+  const hazeMat=new THREE.MeshBasicMaterial({
+    map:hazeTex,color:0xd9e7e8,transparent:true,opacity:.035,depthWrite:false,
+    blending:THREE.AdditiveBlending,side:THREE.DoubleSide
+  });
+  for(const z of [.85,-3.15,-7.10]){
+    for(const r of [0,Math.PI/2]){
+      const h=new THREE.Mesh(new THREE.PlaneGeometry(2.6,2.35),hazeMat);
+      h.position.set(0,1.52,z); h.rotation.y=r; root.add(h);
+    }
+  }
+
   return root;
 }
 
@@ -787,13 +835,13 @@ async function main() {
   world.renderer.shadowMap.enabled = true;
   world.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   world.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  world.renderer.toneMappingExposure = 1.04;
+  world.renderer.toneMappingExposure = 1.28;
   world.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-  const hemi = new THREE.HemisphereLight(0xdce5e7, 0x29231e, 0.44);
+  const hemi = new THREE.HemisphereLight(0xe3ecee, 0x51463d, 0.78);
   world.createTransformEntity(hemi, { persistent: true });
 
-  const key = new THREE.DirectionalLight(0xeef3f3, 0.82);
+  const key = new THREE.DirectionalLight(0xf1f5f5, 1.12);
   key.position.set(-1.8, 7.0, 1.0);
   key.castShadow = true;
   key.shadow.mapSize.set(1024, 1024);
@@ -818,13 +866,13 @@ async function main() {
     target.position.set(0,.05,z-.12);
     world.createTransformEntity(target,{persistent:true});
 
-    const down = new THREE.SpotLight(0xe8f7fb, 7.2, 6.8, Math.PI/3.5, .70, 1.45);
+    const down = new THREE.SpotLight(0xe8f7fb, 11.8, 7.6, Math.PI/3.15, .62, 1.35);
     down.position.set(0,2.74,z);
     down.target = target;
     down.castShadow = false;
     world.createTransformEntity(down,{persistent:true});
 
-    const spill = new THREE.PointLight(0xdce9ec,.66,4.25,1.8);
+    const spill = new THREE.PointLight(0xdce9ec,1.28,5.1,1.72);
     spill.position.set(0,2.48,z);
     spill.castShadow=false;
     world.createTransformEntity(spill,{persistent:true});
@@ -832,28 +880,28 @@ async function main() {
 
   const warmSources: Array<[number,number]> = [[-3.08,-1.02],[3.08,-5.08],[-3.08,-8.60]];
   warmSources.forEach(([x,z])=>{
-    const warm = new THREE.PointLight(0xffb36f,.58,3.0,2.0);
+    const warm = new THREE.PointLight(0xffc18a,.34,2.7,2.0);
     warm.position.set(x,1.46,z);
     warm.castShadow=false;
     world.createTransformEntity(warm,{persistent:true});
   });
 
   // Very low far-lane lift prevents Quest black crush without flattening the room.
-  const farLift = new THREE.PointLight(0xb8c7c9,.20,4.6,2.0);
+  const farLift = new THREE.PointLight(0xc8d5d6,.62,6.3,1.7);
   farLift.position.set(0,1.2,-8.8);
   farLift.castShadow=false;
   world.createTransformEntity(farLift,{persistent:true});
 
   const nativeXR = Boolean(navigator.xr);
   if (boot) boot.textContent = nativeXR
-    ? 'NEXUS IWSDK A6 · LIVED-IN BODYCAM · PRACTICAL LIGHT'
-    : 'NEXUS A6 · WEBXR NOT AVAILABLE';
+    ? 'NEXUS IWSDK A7 · QUEST REFERENCE MATCH · WET LIGHT'
+    : 'NEXUS A7 · WEBXR NOT AVAILABLE';
 
   world.renderer.xr.addEventListener('sessionstart', () => {
-    if (boot) boot.textContent = 'NEXUS A6 · VR LIVE · QUEST VISUAL CHECK';
+    if (boot) boot.textContent = 'NEXUS A7 · VR LIVE · REFERENCE MATCH';
   });
   world.renderer.xr.addEventListener('sessionend', () => {
-    if (boot) boot.textContent = 'NEXUS A6 · VR EXITED · READY TO RE-ENTER';
+    if (boot) boot.textContent = 'NEXUS A7 · VR EXITED · READY TO RE-ENTER';
   });
 }
 
