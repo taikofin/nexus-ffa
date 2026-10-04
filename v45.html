@@ -17,6 +17,7 @@ canvas{display:block;width:100%;height:100%}
 #version{position:fixed;right:10px;bottom:8px;z-index:5;font-size:10px;opacity:.85;pointer-events:none}
 #hud{position:fixed;left:12px;top:116px;z-index:4;font-size:12px;text-shadow:0 2px 6px #000;pointer-events:none}
 .xrbtn{position:fixed!important;left:50%!important;bottom:26px!important;transform:translateX(-50%)!important;padding:14px 22px!important;border-radius:999px!important;border:0!important;background:#f4fbff!important;color:#081116!important;font:900 17px Arial!important}
+.xrbtn:disabled{opacity:.7!important;cursor:not-allowed!important}
 </style>
 <script type="importmap">
 {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"}}
@@ -24,9 +25,9 @@ canvas{display:block;width:100%;height:100%}
 </head>
 <body>
 <div id="fresh">FRESH FILE · v45 · MODULAR</div>
-<div id="status"><b>NEXUS v45 MODULAR ASSET PASS</b><br>One reusable construction kit + rebuilt jacket sleeves.</div>
+<div id="status" role="status" aria-live="polite"><b>NEXUS v45 MODULAR ASSET PASS</b><br>Checking whether this browser can enter VR…</div>
 <div id="hud">BANK <b id="score">0</b>/30 · CARRY <b id="carry">0</b> · <span id="weapon">TRACKED POINT-GUNS + KNIFE</span></div>
-<div id="version">NEXUS v45 · MODULAR · 4501</div>
-<script type="module" src="./nexus-v45.js?build=4501-modular"></script>
+<div id="version">NEXUS v45 · MODULAR · 4502</div>
+<script type="module" src="./nexus-v45.js?build=4502-vr-entry-fix"></script>
 </body>
 </html>

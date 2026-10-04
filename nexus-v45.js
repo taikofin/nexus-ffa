@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
 import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 
-const NEXUS_BUILD="v45-modular-4501";
+const NEXUS_BUILD="v45-modular-4502";
 window.__NEXUS_BUILD=NEXUS_BUILD;
 
 const status=document.getElementById("status");
@@ -3195,19 +3195,27 @@ renderer.setAnimationLoop(()=>{
 });
 
 async function enterVR(){
+ if(button.disabled)return;
+ button.disabled=true;
+ button.textContent="STARTING…";
  try{
   if(!navigator.xr)throw new Error("WebXR is not available in this browser.");
-  const supported=await navigator.xr.isSessionSupported("immersive-vr");
-  if(!supported)throw new Error("Immersive VR is not supported.");
   status.innerHTML="<b>STARTING VR</b><br>Opening clean Quest session…";
+  // Keep requestSession in the click's user-activation window. Awaiting a support
+  // probe first can make stricter browsers reject an otherwise valid XR request.
   const session=await navigator.xr.requestSession("immersive-vr",{
-   requiredFeatures:["local-floor"],
-   optionalFeatures:["hand-tracking"]
+   optionalFeatures:["local-floor","bounded-floor","hand-tracking"]
   });
   await renderer.xr.setSession(session);
-  status.innerHTML="<b>NEXUS ACTIVE</b><br>v42 cache-proof build. Look for the NEXUS v45 MODULAR marker.";
+  status.innerHTML="<b>NEXUS ACTIVE</b><br>Look for the NEXUS v45 MODULAR marker.";
  }catch(err){
-  status.innerHTML="<b>VR START FAILED</b><br>"+String(err&&err.message?err.message:err);
+  const message=String(err&&err.message?err.message:err);
+  const help=!window.isSecureContext
+   ?" Open this page over HTTPS in Meta Quest Browser."
+   :" Make sure you are using Meta Quest Browser, allow immersive mode, then try again.";
+  status.innerHTML="<b>VR START FAILED</b><br>"+message+help;
+  button.disabled=false;
+  button.textContent="TRY ENTERING VR AGAIN";
  }
 }
 
@@ -3217,14 +3225,45 @@ button.textContent="ENTER NEXUS VR";
 button.addEventListener("click",enterVR);
 document.body.appendChild(button);
 
+async function checkVRSupport(){
+ if(!window.isSecureContext){
+  status.innerHTML="<b>HTTPS REQUIRED</b><br>Open the secure GitHub Pages link in Meta Quest Browser.";
+  button.textContent="VR NEEDS HTTPS";
+  button.disabled=true;
+  return;
+ }
+ if(!navigator.xr){
+  status.innerHTML="<b>QUEST BROWSER REQUIRED</b><br>This browser does not expose WebXR. Open this page inside your headset.";
+  button.textContent="WEBXR NOT AVAILABLE";
+  button.disabled=true;
+  return;
+ }
+ try{
+  if(!await navigator.xr.isSessionSupported("immersive-vr")){
+   status.innerHTML="<b>IMMERSIVE VR UNAVAILABLE</b><br>Open this page in Meta Quest Browser and check browser permissions.";
+   button.textContent="VR NOT SUPPORTED";
+   button.disabled=true;
+  }else{
+   status.innerHTML="<b>NEXUS READY</b><br>Press ENTER NEXUS VR to join.";
+  }
+ }catch(err){
+  // Do not block entry when a browser cannot complete the optional probe; the
+  // click-time request below will report the useful error while activation lives.
+  console.warn("Unable to check immersive-vr support",err);
+ }
+}
+checkVRSupport();
+
 renderer.xr.addEventListener("sessionstart",()=>{
  button.style.display="none";
  buildMarker.visible=true;
  buildMarkerUntil=performance.now()+7000;
- status.innerHTML="<b>NEXUS v45 MODULARNESS PASS</b><br>In-VR marker confirms fresh code.";
+ status.innerHTML="<b>NEXUS v45 MODULAR</b><br>In-VR marker confirms fresh code.";
 });
 renderer.xr.addEventListener("sessionend",()=>{
  button.style.display="";
+ button.disabled=false;
+ button.textContent="ENTER NEXUS VR";
  buildMarker.visible=false;
  buildMarkerUntil=0;
  cameraFX.rotation.set(0,0,0);
@@ -3244,5 +3283,3 @@ addEventListener("resize",()=>{
  camera.updateProjectionMatrix();
  renderer.setSize(innerWidth,innerHeight);
 });
-
-status.innerHTML="<b>NEXUS v45 MODULARNESS PASS</b><br>Higher texel density + XR resolution. Compare nearby wall/floor clarity.";
